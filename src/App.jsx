@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 
 // App version — bump on every deploy so the running site shows which build is live.
-const APP_VERSION = "v1B.5";
+const APP_VERSION = "v1B.7";
 
 /* ============================================================================
    UNFAIR ADVANTAGE — v1B
@@ -26,7 +26,7 @@ const SLOTS = [
 /* ---- design tokens (from the approved ChatGPT skin) --------------------- */
 const CSS = `
 :root{
-  --page:#f2f3ef; --surface:#fffdf8; --ink:#18201d; --muted:#4d5a55;
+  --page:#f7f8f7; --surface:#ffffff; --ink:#18201d; --muted:#4d5a55;
   --line:#ccd3ce; --deep:#173d34; --accent:#e59b2f; --accent-soft:#fff0cf;
   --blue:#245f83; --blue-soft:#eaf4f8; --ok:#166b4d;
   --shadow:0 24px 60px rgba(27,42,37,.16);
@@ -38,9 +38,7 @@ const CSS = `
 html,body,#root{height:100%;}
 body{
   margin:0; color:var(--ink); font-family:var(--font-body);
-  background:
-    radial-gradient(circle at top left, rgba(229,155,47,.09), transparent 26rem),
-    linear-gradient(180deg,#f6f7f3 0%, var(--page) 100%);
+  background:#f7f8f7;
 }
 .ua-app{ max-width:520px; margin:0 auto; min-height:100%; display:flex; flex-direction:column; }
 .appbar{
@@ -57,6 +55,9 @@ body{
 .brand-name{ font-size:1.08rem; font-weight:900; letter-spacing:-.02em; }
 .brand-version{ font-size:.7rem; font-weight:600; opacity:.55; letter-spacing:0; margin-left:2px; }
 .screen{ padding:20px 16px 28px; flex:1; }
+.tagline{ text-align:center; margin:0 0 16px; display:flex; flex-direction:column; gap:2px; }
+.tagline-lead{ font-family:var(--font-display); font-weight:800; font-size:.9rem; color:var(--deep); letter-spacing:.01em; }
+.tagline-sub{ font-size:.8rem; color:var(--muted); line-height:1.35; }
 .screen h2{
   font-family:var(--font-display); font-size:1.6rem; line-height:1.08;
   letter-spacing:-.035em; color:var(--deep); margin:0 0 7px;
@@ -562,6 +563,10 @@ export default function App() {
       {/* -------------------- CAPTURE -------------------- */}
       {phase === "capture" && (
         <div className="screen">
+          <div className="tagline">
+            <span className="tagline-lead">AI-Powered · Real-Time Market Research</span>
+            <span className="tagline-sub">Price range estimates from real sales data. Knowledge is power.</span>
+          </div>
           <h2>Photograph the item.</h2>
           <p className="lead">Three quick views give the strongest price estimate. Fill any you can.</p>
 
@@ -765,12 +770,19 @@ function ResultView({ result }) {
       {scenarios.length > 0 && (
         <section className="scenarios">
           <h3>What changes the price</h3>
-          {scenarios.map((sc, i) => (
-            <div className="scenario-row" key={i}>
-              <div className="scenario-cond">{sc.condition}</div>
-              <div className="scenario-val">{sc.value || "\u2014"}</div>
-            </div>
-          ))}
+          {scenarios.map((sc, i) => {
+            const raw = (sc.condition || "").trim();
+            // Present each as a conditional ("If ...") so it never reads as a
+            // finding the tool actually made. Don't double-prefix if the model
+            // already phrased it with "if".
+            const cond = /^if\b/i.test(raw) ? raw : "If " + raw.charAt(0).toLowerCase() + raw.slice(1);
+            return (
+              <div className="scenario-row" key={i}>
+                <div className="scenario-cond">{cond}</div>
+                <div className="scenario-val">{sc.value || "\u2014"}</div>
+              </div>
+            );
+          })}
           <p className="scenarios-note">Confirm the condition above to narrow the range.</p>
         </section>
       )}
