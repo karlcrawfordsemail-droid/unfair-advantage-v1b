@@ -195,6 +195,13 @@ export default async (req) => {
     if (forceLane === "common") klass = "common";
     if (forceLane === "collectible") klass = "collectible";
 
+    // If the user already chose a lane (resume call), immediately clear any
+    // stale "awaiting_consent" status so the frontend poll can't re-read it
+    // and pop the consent question a second time.
+    if (forceLane) {
+      await store.setJSON(jobId, { status: "processing", klass });
+    }
+
     const isCollectible = klass === "collectible";
 
     // Lane settings:

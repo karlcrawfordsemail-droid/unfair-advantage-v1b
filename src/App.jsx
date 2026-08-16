@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 
 // App version — bump on every deploy so the running site shows which build is live.
-const APP_VERSION = "v1B.2";
+const APP_VERSION = "v1B.4";
 
 /* ============================================================================
    UNFAIR ADVANTAGE — v1B
@@ -189,6 +189,13 @@ textarea#notes:focus, input#zip:focus{ outline:2px solid #b7a6e6; outline-offset
 }
 .wholesale-label{ font-family:var(--font-display); font-size:.8rem; font-weight:700; color:rgba(255,255,255,.72); }
 .wholesale-value{ font-family:var(--font-display); font-weight:900; font-size:1.35rem; }
+
+.scenarios{ margin:0 0 18px; border-top:1px solid var(--line); padding-top:14px; }
+.scenarios h3{ font-family:var(--font-display); font-size:.95rem; color:var(--deep); margin:0 0 8px; }
+.scenario-row{ display:flex; justify-content:space-between; align-items:baseline; gap:12px; padding:6px 0; border-bottom:1px dotted var(--line); }
+.scenario-cond{ font-size:.9rem; color:var(--muted); line-height:1.35; }
+.scenario-val{ font-family:var(--font-display); font-weight:800; font-size:1rem; color:var(--deep); white-space:nowrap; }
+.scenarios-note{ font-size:.78rem; color:var(--muted); font-style:italic; margin:8px 0 0; }
 
 .market-strip{
   display:flex; align-items:center; gap:12px; background:var(--blue-soft);
@@ -444,7 +451,10 @@ export default function App() {
         const pd = await poll.json();
 
         // Consent gate: triage thinks collectible and no lane forced yet.
+        // If a lane was ALREADY forced (user answered), any awaiting_consent
+        // status is stale from the first pass — ignore it and keep polling.
         if (pd.status === "awaiting_consent") {
+          if (forceLane) continue;
           stopTrack();
           setConsent({ jobId: id, photoCount: active.length });
           setPhase("consent");
@@ -711,9 +721,10 @@ function ResultView({ result }) {
     conf.indexOf("low") === 0 ? "Low confidence" : "Moderate confidence";
 
   const retail = result.value || "\u2014";
-  const wholesale = result.wholesale || "\u2014";
+  const wholesale = result.walkAway || result.wholesale || "\u2014";
   const reasoning = Array.isArray(result.reasoning) ? result.reasoning : [];
   const cantVerify = Array.isArray(result.cantVerify) ? result.cantVerify : [];
+  const scenarios = Array.isArray(result.scenarios) ? result.scenarios : [];
 
   // "Best market" is derived from itemType when present (Local / Collectible / SpecificBuyer).
   const marketMap = {
@@ -750,6 +761,19 @@ function ResultView({ result }) {
           <span className={"confidence-pill " + pillClass}>{confText}</span>
         </div>
       </section>
+
+      {scenarios.length > 0 && (
+        <section className="scenarios">
+          <h3>What changes the price</h3>
+          {scenarios.map((sc, i) => (
+            <div className="scenario-row" key={i}>
+              <div className="scenario-cond">{sc.condition}</div>
+              <div className="scenario-val">{sc.value || "\u2014"}</div>
+            </div>
+          ))}
+          <p className="scenarios-note">Confirm the condition above to narrow the range.</p>
+        </section>
+      )}
 
       {reasoning.length > 0 && (
         <details className="why" open>
