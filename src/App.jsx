@@ -1,5 +1,8 @@
 import React, { useEffect, useRef, useState } from "react";
 
+// App version — bump on every deploy so the running site shows which build is live.
+const APP_VERSION = "v1B.2";
+
 /* ============================================================================
    UNFAIR ADVANTAGE — v1B
    Front door rebuilt on the ChatGPT visual skin, wired to the live v37 engine.
@@ -52,6 +55,7 @@ body{
   box-shadow:inset 0 0 0 2px rgba(255,255,255,.32); font-family:var(--font-display);
 }
 .brand-name{ font-size:1.08rem; font-weight:900; letter-spacing:-.02em; }
+.brand-version{ font-size:.7rem; font-weight:600; opacity:.55; letter-spacing:0; margin-left:2px; }
 .screen{ padding:20px 16px 28px; flex:1; }
 .screen h2{
   font-family:var(--font-display); font-size:1.6rem; line-height:1.08;
@@ -519,7 +523,7 @@ export default function App() {
     <header className="appbar">
       <div className="brand">
         <div className="brand-mark">UA</div>
-        <div className="brand-name">Unfair Advantage</div>
+        <div className="brand-name">Unfair Advantage <span className="brand-version">{APP_VERSION}</span></div>
       </div>
     </header>
   );
