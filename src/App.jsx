@@ -70,6 +70,7 @@ body{
   font-family:var(--font-body); color:inherit;
 }
 .photo-card.filled{ border-color:var(--deep); }
+.photo-card.dragging{ border-color:var(--accent); border-style:solid; background:var(--accent-soft); }
 .photo-card .thumb{
   position:absolute; inset:0; background-size:cover; background-position:center;
 }
@@ -216,6 +217,9 @@ details.why[open] summary::after{ content:" \\2304"; }
 .why-item b{ font-family:var(--font-display); display:block; font-size:.9rem; color:var(--deep); margin-bottom:2px; }
 .why-item span{ font-size:.9rem; line-height:1.4; color:var(--muted); }
 .cant-verify{ margin-top:14px; font-size:.85rem; color:#9a3b3b; line-height:1.4; }
+.cant-verify-item{ margin-top:6px; }
+.cant-verify-item b{ display:block; font-size:.85rem; margin-bottom:1px; }
+.cant-verify-item span{ display:block; font-size:.85rem; line-height:1.4; }
 
 .value-only{
   margin-top:6px; padding:12px 14px; background:#f0f3ef; border-radius:var(--radius-md);
@@ -287,6 +291,10 @@ export default function App() {
   const cameraInputRef = useRef(null);
   const fileInputRef = useRef(null);
   const msgTimer = useRef(null);
+  const [dragSlot, setDragSlot] = useState(null); // slot index being dragged over (desktop)
+  // Desktop = has a fine pointer + hover (mouse). Phones/tablets fail this, so DnD stays off there.
+  const isDesktop = typeof window !== "undefined" &&
+    window.matchMedia && window.matchMedia("(hover: hover) and (pointer: fine)").matches;
 
   const showCost = (() => {
     try { return new URLSearchParams(window.location.search).get("debug") === "cost"; }
@@ -313,6 +321,30 @@ export default function App() {
     captureIndexRef.current = slotIndex;
     const ref = useCamera ? cameraInputRef : fileInputRef;
     if (ref.current) ref.current.click();
+  };
+
+  /* ---- desktop drag-and-drop onto a specific photo slot ---- */
+  const onSlotDragOver = (slotIndex) => (e) => {
+    if (!isDesktop) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "copy";
+    if (dragSlot !== slotIndex) setDragSlot(slotIndex);
+  };
+  const onSlotDragLeave = (slotIndex) => (e) => {
+    if (!isDesktop) return;
+    e.preventDefault();
+    setDragSlot((cur) => (cur === slotIndex ? null : cur));
+  };
+  const onSlotDrop = (slotIndex) => (e) => {
+    if (!isDesktop) return;
+    e.preventDefault();
+    setDragSlot(null);
+    const files = e.dataTransfer && e.dataTransfer.files;
+    if (!files || !files.length) return;
+    const imageFile = Array.from(files).find((f) => f.type && f.type.indexOf("image/") === 0);
+    if (!imageFile) { setError("That's not an image file. Drop a JPG or PNG."); return; }
+    captureIndexRef.current = slotIndex;
+    handleFile([imageFile]);
   };
 
   const handleFile = (fileList) => {
@@ -528,8 +560,11 @@ export default function App() {
                 <button
                   key={i}
                   type="button"
-                  className={"photo-card" + (filled ? " filled" : "")}
-                  onClick={() => openPicker(i, true)}
+                  className={"photo-card" + (filled ? " filled" : "") + (dragSlot === i ? " dragging" : "")}
+                  onClick={() => openPicker(i, !isDesktop)}
+                  onDragOver={onSlotDragOver(i)}
+                  onDragLeave={onSlotDragLeave(i)}
+                  onDrop={onSlotDrop(i)}
                 >
                   {filled && (
                     <div className="thumb" style={{ backgroundImage: `url(${photos[i].src})` }} />
@@ -545,7 +580,11 @@ export default function App() {
               );
             })}
           </section>
-          <div className="scale-hint">Tap a box to use the camera. Add something for scale if the size isn't obvious.</div>
+          <div className="scale-hint">
+            {isDesktop
+              ? "Click a box to browse, or drag an image onto it. Add something for scale if the size isn't obvious."
+              : "Tap a box to use the camera. Add something for scale if the size isn't obvious."}
+          </div>
 
           <button className="primary-button" disabled={!canPrice} onClick={startValuation}>
             Price this item
@@ -709,7 +748,7 @@ function ResultView({ result }) {
       </section>
 
       {reasoning.length > 0 && (
-        <details className="why">
+        <details className="why" open>
           <summary>Why this price</summary>
           {reasoning.map((r, i) => (
             <div className="why-item" key={i}>
@@ -719,7 +758,19 @@ function ResultView({ result }) {
           ))}
           {cantVerify.length > 0 && (
             <div className="cant-verify">
-              <b>Couldn't verify:</b> {cantVerify.join("; ")}
+              <b>Couldn't verify:</b>
+              {cantVerify.map((c, i) => (
+                <div className="cant-verify-item" key={i}>
+                  {typeof c === "string" ? (
+                    <span>{c}</span>
+                  ) : (
+                    <>
+                      {c.point && <b>{c.point}</b>}
+                      {c.detail && <span>{c.detail}</span>}
+                    </>
+                  )}
+                </div>
+              ))}
             </div>
           )}
         </details>
