@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 
 // App version — bump on every deploy so the running site shows which build is live.
-const APP_VERSION = "v1B.7";
+const APP_VERSION = "v1B.8";
 
 /* ============================================================================
    UNFAIR ADVANTAGE — v1B
@@ -42,18 +42,18 @@ body{
 }
 .ua-app{ max-width:520px; margin:0 auto; min-height:100%; display:flex; flex-direction:column; }
 .appbar{
-  background:var(--deep); color:#fff; padding:18px 18px 15px;
+  background:#ffffff; color:var(--deep); padding:16px 18px 13px;
   font-family:var(--font-display); border-bottom:4px solid var(--accent);
   position:sticky; top:0; z-index:10;
 }
-.brand{ display:flex; align-items:center; gap:10px; }
+.brand{ display:flex; align-items:center; justify-content:center; gap:10px; }
 .brand-mark{
-  width:28px; height:28px; border-radius:9px; display:inline-grid; place-items:center;
-  background:var(--accent); color:#142b25; font-size:.88rem; font-weight:900;
+  width:30px; height:30px; border-radius:9px; display:inline-grid; place-items:center;
+  background:var(--accent); color:#142b25; font-size:.92rem; font-weight:900;
   box-shadow:inset 0 0 0 2px rgba(255,255,255,.32); font-family:var(--font-display);
 }
-.brand-name{ font-size:1.08rem; font-weight:900; letter-spacing:-.02em; }
-.brand-version{ font-size:.7rem; font-weight:600; opacity:.55; letter-spacing:0; margin-left:2px; }
+.brand-name{ font-size:1.5rem; font-weight:900; letter-spacing:-.02em; color:var(--deep); }
+.brand-version{ font-size:.7rem; font-weight:600; opacity:.5; letter-spacing:0; margin-left:3px; }
 .screen{ padding:20px 16px 28px; flex:1; }
 .tagline{ text-align:center; margin:0 0 16px; display:flex; flex-direction:column; gap:2px; }
 .tagline-lead{ font-family:var(--font-display); font-weight:800; font-size:.9rem; color:var(--deep); letter-spacing:.01em; }
