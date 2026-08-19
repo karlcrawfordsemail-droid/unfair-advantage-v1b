@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 
 // App version — bump on every deploy so the running site shows which build is live.
-const APP_VERSION = "v1B.11";
+const APP_VERSION = "v1B.12";
 
 /* ============================================================================
    UNFAIR ADVANTAGE — v1B
@@ -84,25 +84,19 @@ body{
   cursor:pointer;
 }
 .add-photo-btn:hover{ border-color:var(--accent); }
-.chooser-backdrop{
-  position:fixed; inset:0; z-index:50; background:rgba(10,18,15,.45);
-  display:flex; align-items:flex-end; justify-content:center;
+.photo-actions{
+  position:absolute; top:44px; left:0; right:0; bottom:52px;
+  display:flex; flex-direction:column; align-items:stretch; justify-content:center;
+  gap:8px; padding:0 8px; z-index:2;
 }
-.chooser-sheet{
-  width:100%; max-width:520px; background:#fff; border-radius:18px 18px 0 0;
-  padding:10px; display:flex; flex-direction:column; gap:8px;
-  box-shadow:0 -8px 30px rgba(0,0,0,.2);
+.photo-action{
+  display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px;
+  padding:8px 4px; border:1.5px solid var(--line); border-radius:10px;
+  background:#fff; cursor:pointer; color:var(--deep);
 }
-.chooser-opt{
-  width:100%; padding:16px; border:none; border-radius:12px;
-  background:var(--deep); color:#fff; font-family:var(--font-display);
-  font-weight:800; font-size:1rem; cursor:pointer;
-}
-.chooser-opt:last-of-type{ background:var(--accent); color:#142b25; }
-.chooser-cancel{
-  width:100%; padding:14px; border:none; border-radius:12px; background:#eee;
-  color:var(--ink); font-family:var(--font-display); font-weight:700; font-size:.95rem; cursor:pointer;
-}
+.photo-action:active{ background:var(--accent-soft); }
+.pa-icon{ font-size:1.25rem; line-height:1; }
+.pa-text{ font-family:var(--font-display); font-weight:700; font-size:.8rem; }
 .photo-card{
   position:relative; min-width:0; height:184px; border:2px solid #9ca9a3;
   border-radius:14px; background:#f0f3ef; overflow:hidden; display:flex;
@@ -322,7 +316,6 @@ export default function App() {
   // photos[i] = { src, data, mediaType } or null, indexed by slot (0..4)
   const [photos, setPhotos] = useState([null, null, null, null, null]);
   const [extraVisible, setExtraVisible] = useState(0); // 0..2 extra slots revealed
-  const [chooserSlot, setChooserSlot] = useState(null); // slot index awaiting camera/gallery choice (mobile)
   const [notes, setNotes] = useState("");
   const [zip, setZip] = useState("");
 
@@ -375,16 +368,7 @@ export default function App() {
   };
 
   // On mobile, tapping a slot offers camera OR gallery. Desktop browses files directly.
-  const onSlotTap = (slotIndex) => {
-    if (isDesktop) { openPicker(slotIndex, false); return; }
-    setChooserSlot(slotIndex);
-  };
-  const chooseSource = (useCamera) => {
-    const slot = chooserSlot;
-    setChooserSlot(null);
-    if (slot === null) return;
-    openPicker(slot, useCamera);
-  };
+  // (Each empty box now shows explicit Camera / Gallery buttons; no chooser sheet needed.)
 
   /* ---- desktop drag-and-drop onto a specific photo slot ---- */
   const onSlotDragOver = (slotIndex) => (e) => {
@@ -625,21 +609,6 @@ export default function App() {
       {/* -------------------- CAPTURE -------------------- */}
       {phase === "capture" && (
         <div className="screen">
-          {chooserSlot !== null && (
-            <div className="chooser-backdrop" onClick={() => setChooserSlot(null)}>
-              <div className="chooser-sheet" onClick={(e) => e.stopPropagation()}>
-                <button type="button" className="chooser-opt" onClick={() => chooseSource(true)}>
-                  Take photo
-                </button>
-                <button type="button" className="chooser-opt" onClick={() => chooseSource(false)}>
-                  Choose from gallery
-                </button>
-                <button type="button" className="chooser-cancel" onClick={() => setChooserSlot(null)}>
-                  Cancel
-                </button>
-              </div>
-            </div>
-          )}
           <div className="tagline">
             <span className="tagline-lead">AI-Powered · Real-Time Market Research</span>
             <span className="tagline-sub">Price range estimates from real sales data. Knowledge is power.</span>
@@ -653,11 +622,9 @@ export default function App() {
             {SLOTS.concat(EXTRA_SLOTS.slice(0, extraVisible)).map((slot, i) => {
               const filled = !!photos[i];
               return (
-                <button
+                <div
                   key={i}
-                  type="button"
                   className={"photo-card" + (filled ? " filled" : "") + (dragSlot === i ? " dragging" : "")}
-                  onClick={() => onSlotTap(i)}
                   onDragOver={onSlotDragOver(i)}
                   onDragLeave={onSlotDragLeave(i)}
                   onDrop={onSlotDrop(i)}
@@ -675,12 +642,35 @@ export default function App() {
                   )}
                   <div className="photo-number">{i + 1}</div>
                   <div className="photo-check">{"\u2713"}</div>
-                  {!filled && <div className="empty-icon" aria-hidden="true" />}
+
+                  {!filled && (
+                    <div className="photo-actions">
+                      <button
+                        type="button"
+                        className="photo-action"
+                        onClick={() => openPicker(i, true)}
+                        aria-label="Take photo"
+                      >
+                        <span className="pa-icon" aria-hidden="true">{"\ud83d\udcf7"}</span>
+                        <span className="pa-text">Camera</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="photo-action"
+                        onClick={() => openPicker(i, false)}
+                        aria-label="Choose from gallery"
+                      >
+                        <span className="pa-icon" aria-hidden="true">{"\ud83d\uddbc\ufe0f"}</span>
+                        <span className="pa-text">Gallery</span>
+                      </button>
+                    </div>
+                  )}
+
                   <div className="photo-copy">
                     <span className="photo-label">{slot.label}</span>
                     <span className="photo-instruction">{slot.instruction}</span>
                   </div>
-                </button>
+                </div>
               );
             })}
           </section>
@@ -695,8 +685,8 @@ export default function App() {
           )}
           <div className="scale-hint">
             {isDesktop
-              ? "Click a box to browse, or drag an image onto it. Add something for scale if the size isn't obvious."
-              : "Tap a box to use the camera. Add something for scale if the size isn't obvious."}
+              ? "Click Camera or Gallery on any box, or drag an image onto it. Add something for scale if the size isn't obvious."
+              : "On each box, choose Camera or Gallery. Add something for scale if the size isn't obvious."}
           </div>
 
           <button className="primary-button" disabled={!canPrice} onClick={startValuation}>
