@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 
 // App version — bump on every deploy so the running site shows which build is live.
-const APP_VERSION = "v1B.8";
+const APP_VERSION = "v1B.9";
 
 /* ============================================================================
    UNFAIR ADVANTAGE — v1B
@@ -13,14 +13,19 @@ const APP_VERSION = "v1B.8";
    NOT displayed: buy/sell verdict, listPrice, walkAway, advice.
    ========================================================================== */
 
-const MAX_PHOTOS = 3;
+const MAX_PHOTOS = 5;
 const FREE_LIMIT = 5; // free valuations before feedback is required to continue
 
-// The three capture slots, in order. Labels/copy are the settled v1B wording.
+// The three core capture slots, in order. Labels/copy are the settled v1B wording.
 const SLOTS = [
   { label: "Overall", instruction: "The whole item" },
   { label: "Underside", instruction: "Maker's mark, signature, or label" },
   { label: "More views", instruction: "Especially any damage or chips" },
+];
+// Up to 2 extra generic slots the user can reveal when 3 aren't enough (5 total).
+const EXTRA_SLOTS = [
+  { label: "Another view", instruction: "Any extra angle" },
+  { label: "Another view", instruction: "Any extra angle" },
 ];
 
 /* ---- design tokens (from the approved ChatGPT skin) --------------------- */
@@ -65,7 +70,20 @@ body{
 .lead{ margin:0 0 17px; font-size:.98rem; line-height:1.4; color:var(--muted); font-weight:700; }
 
 /* capture slots */
-.photo-row{ display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; margin-bottom:16px; }
+.photo-row{ display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; margin-bottom:12px; }
+.photo-delete{
+  position:absolute; top:5px; right:5px; z-index:3;
+  width:26px; height:26px; border-radius:50%;
+  background:rgba(20,20,18,.82); color:#fff; font-size:18px; line-height:26px;
+  text-align:center; cursor:pointer; font-family:sans-serif; font-weight:400;
+}
+.add-photo-btn{
+  display:block; width:100%; margin:0 0 16px; padding:11px 12px;
+  background:transparent; border:1.5px dashed var(--line); border-radius:12px;
+  color:var(--deep); font-family:var(--font-display); font-weight:700; font-size:.9rem;
+  cursor:pointer;
+}
+.add-photo-btn:hover{ border-color:var(--accent); }
 .photo-card{
   position:relative; min-width:0; height:184px; border:2px solid #9ca9a3;
   border-radius:14px; background:#f0f3ef; overflow:hidden; display:flex;
@@ -282,8 +300,9 @@ const COLLECTIBLE_MSGS = [
 ];
 
 export default function App() {
-  // photos[i] = { src, data, mediaType } or null, indexed by slot (0..2)
-  const [photos, setPhotos] = useState([null, null, null]);
+  // photos[i] = { src, data, mediaType } or null, indexed by slot (0..4)
+  const [photos, setPhotos] = useState([null, null, null, null, null]);
+  const [extraVisible, setExtraVisible] = useState(0); // 0..2 extra slots revealed
   const [notes, setNotes] = useState("");
   const [zip, setZip] = useState("");
 
@@ -395,6 +414,17 @@ export default function App() {
     };
     reader.onerror = () => setError("That photo couldn't be read. Try a different image.");
     reader.readAsDataURL(file);
+  };
+
+  // Clear a photo so the user can retake before evaluating.
+  const deletePhoto = (slotIndex, e) => {
+    if (e) e.stopPropagation();
+    setPhotos((prev) => {
+      const next = prev.slice();
+      next[slotIndex] = null;
+      return next;
+    });
+    setError(null);
   };
 
   const filledPhotos = () => photos.filter(Boolean);
@@ -573,7 +603,7 @@ export default function App() {
           {error && <div className="error-box">{error}</div>}
 
           <section className="photo-row">
-            {SLOTS.map((slot, i) => {
+            {SLOTS.concat(EXTRA_SLOTS.slice(0, extraVisible)).map((slot, i) => {
               const filled = !!photos[i];
               return (
                 <button
@@ -588,6 +618,14 @@ export default function App() {
                   {filled && (
                     <div className="thumb" style={{ backgroundImage: `url(${photos[i].src})` }} />
                   )}
+                  {filled && (
+                    <span
+                      className="photo-delete"
+                      role="button"
+                      aria-label="Remove photo"
+                      onClick={(e) => deletePhoto(i, e)}
+                    >{"\u00d7"}</span>
+                  )}
                   <div className="photo-number">{i + 1}</div>
                   <div className="photo-check">{"\u2713"}</div>
                   {!filled && <div className="empty-icon" aria-hidden="true" />}
@@ -599,6 +637,15 @@ export default function App() {
               );
             })}
           </section>
+          {extraVisible < EXTRA_SLOTS.length && (
+            <button
+              type="button"
+              className="add-photo-btn"
+              onClick={() => setExtraVisible((n) => Math.min(n + 1, EXTRA_SLOTS.length))}
+            >
+              + Add another photo
+            </button>
+          )}
           <div className="scale-hint">
             {isDesktop
               ? "Click a box to browse, or drag an image onto it. Add something for scale if the size isn't obvious."
