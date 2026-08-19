@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 
 // App version — bump on every deploy so the running site shows which build is live.
-const APP_VERSION = "v1B.9";
+const APP_VERSION = "v1B.11";
 
 /* ============================================================================
    UNFAIR ADVANTAGE — v1B
@@ -84,6 +84,25 @@ body{
   cursor:pointer;
 }
 .add-photo-btn:hover{ border-color:var(--accent); }
+.chooser-backdrop{
+  position:fixed; inset:0; z-index:50; background:rgba(10,18,15,.45);
+  display:flex; align-items:flex-end; justify-content:center;
+}
+.chooser-sheet{
+  width:100%; max-width:520px; background:#fff; border-radius:18px 18px 0 0;
+  padding:10px; display:flex; flex-direction:column; gap:8px;
+  box-shadow:0 -8px 30px rgba(0,0,0,.2);
+}
+.chooser-opt{
+  width:100%; padding:16px; border:none; border-radius:12px;
+  background:var(--deep); color:#fff; font-family:var(--font-display);
+  font-weight:800; font-size:1rem; cursor:pointer;
+}
+.chooser-opt:last-of-type{ background:var(--accent); color:#142b25; }
+.chooser-cancel{
+  width:100%; padding:14px; border:none; border-radius:12px; background:#eee;
+  color:var(--ink); font-family:var(--font-display); font-weight:700; font-size:.95rem; cursor:pointer;
+}
 .photo-card{
   position:relative; min-width:0; height:184px; border:2px solid #9ca9a3;
   border-radius:14px; background:#f0f3ef; overflow:hidden; display:flex;
@@ -303,6 +322,7 @@ export default function App() {
   // photos[i] = { src, data, mediaType } or null, indexed by slot (0..4)
   const [photos, setPhotos] = useState([null, null, null, null, null]);
   const [extraVisible, setExtraVisible] = useState(0); // 0..2 extra slots revealed
+  const [chooserSlot, setChooserSlot] = useState(null); // slot index awaiting camera/gallery choice (mobile)
   const [notes, setNotes] = useState("");
   const [zip, setZip] = useState("");
 
@@ -352,6 +372,18 @@ export default function App() {
     captureIndexRef.current = slotIndex;
     const ref = useCamera ? cameraInputRef : fileInputRef;
     if (ref.current) ref.current.click();
+  };
+
+  // On mobile, tapping a slot offers camera OR gallery. Desktop browses files directly.
+  const onSlotTap = (slotIndex) => {
+    if (isDesktop) { openPicker(slotIndex, false); return; }
+    setChooserSlot(slotIndex);
+  };
+  const chooseSource = (useCamera) => {
+    const slot = chooserSlot;
+    setChooserSlot(null);
+    if (slot === null) return;
+    openPicker(slot, useCamera);
   };
 
   /* ---- desktop drag-and-drop onto a specific photo slot ---- */
@@ -593,6 +625,21 @@ export default function App() {
       {/* -------------------- CAPTURE -------------------- */}
       {phase === "capture" && (
         <div className="screen">
+          {chooserSlot !== null && (
+            <div className="chooser-backdrop" onClick={() => setChooserSlot(null)}>
+              <div className="chooser-sheet" onClick={(e) => e.stopPropagation()}>
+                <button type="button" className="chooser-opt" onClick={() => chooseSource(true)}>
+                  Take photo
+                </button>
+                <button type="button" className="chooser-opt" onClick={() => chooseSource(false)}>
+                  Choose from gallery
+                </button>
+                <button type="button" className="chooser-cancel" onClick={() => setChooserSlot(null)}>
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
           <div className="tagline">
             <span className="tagline-lead">AI-Powered · Real-Time Market Research</span>
             <span className="tagline-sub">Price range estimates from real sales data. Knowledge is power.</span>
@@ -610,7 +657,7 @@ export default function App() {
                   key={i}
                   type="button"
                   className={"photo-card" + (filled ? " filled" : "") + (dragSlot === i ? " dragging" : "")}
-                  onClick={() => openPicker(i, !isDesktop)}
+                  onClick={() => onSlotTap(i)}
                   onDragOver={onSlotDragOver(i)}
                   onDragLeave={onSlotDragLeave(i)}
                   onDrop={onSlotDrop(i)}
