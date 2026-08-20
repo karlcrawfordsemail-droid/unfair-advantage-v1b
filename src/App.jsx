@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 
 // App version — bump on every deploy so the running site shows which build is live.
-const APP_VERSION = "v1B.14";
+const APP_VERSION = "v1B.15";
 
 /* ============================================================================
    UNFAIR ADVANTAGE — v1B
@@ -334,7 +334,7 @@ export default function App() {
   const [notes, setNotes] = useState("");
   const [zip, setZip] = useState("");
 
-  const [phase, setPhase] = useState("capture"); // capture | loading | consent | result | limit
+  const [phase, setPhase] = useState("capture"); // capture | loading | result | limit
   const [loadingMsg, setLoadingMsg] = useState(COMMON_MSGS[0]);
   const [error, setError] = useState(null);
   const [result, setResult] = useState(null);
@@ -522,16 +522,6 @@ export default function App() {
         if (!poll.ok) continue;
         const pd = await poll.json();
 
-        // Consent gate: triage thinks collectible and no lane forced yet.
-        // If a lane was ALREADY forced (user answered), any awaiting_consent
-        // status is stale from the first pass — ignore it and keep polling.
-        if (pd.status === "awaiting_consent") {
-          if (forceLane) continue;
-          stopTrack();
-          setConsent({ jobId: id, photoCount: active.length });
-          setPhase("consent");
-          return;
-        }
         if (pd.klass) startTrack(pd.klass);
         if (pd.status === "done" && pd.result) {
           finish(pd);
@@ -568,11 +558,6 @@ export default function App() {
   };
 
   const startValuation = () => { if (canPrice) runPipeline({}); };
-  const resumeWithLane = (lane) => {
-    if (!consent) return;
-    runPipeline({ jobId: consent.jobId, forceLane: lane });
-  };
-
   /* ---- reset for the next item ---- */
   const nextItem = () => {
     setPhotos([null, null, null]);
@@ -774,25 +759,6 @@ export default function App() {
         </div>
       )}
 
-      {/* -------------------- CONSENT GATE -------------------- */}
-      {phase === "consent" && (
-        <div className="screen">
-          <div className="consent-card">
-            <h2>This might be collectible.</h2>
-            <p className="consent-copy">
-              A quick look suggests this could be worth more than an everyday item.
-              A deeper search of sold listings takes a little longer but gives a
-              far more reliable number on pieces like this.
-            </p>
-            <button className="primary-button" onClick={() => resumeWithLane("collectible")}>
-              Do the deeper search
-            </button>
-            <button className="ghost-button" onClick={() => resumeWithLane("common")}>
-              Just give me a quick estimate
-            </button>
-          </div>
-        </div>
-      )}
 
       {/* -------------------- RESULT -------------------- */}
       {phase === "result" && result && (

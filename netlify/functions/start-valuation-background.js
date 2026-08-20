@@ -182,32 +182,22 @@ export default async (req) => {
       timing.triageMs = Date.now() - triageStart;
     }
 
-    // CONSENT GATE: if triage thinks this MIGHT be collectible and the user
-    // hasn't yet chosen a lane, pause and ask. The frontend shows the choice
-    // and re-invokes this function with forceLane set. Common items skip this
-    // entirely and run straight through — no question for obvious everyday goods.
-    if (klass === "collectible" && !forceLane) {
-      await store.setJSON(jobId, { status: "awaiting_consent", klass });
-      return new Response("awaiting consent");
-    }
-
-    // Respect the user's explicit choice if they made one.
+    // NO CONSENT GATE: this tool is for valuing potentially rare/collectible
+    // items, so every item runs straight through to the deep valuation on its
+    // triage-determined lane. Collectibles get the full deep search; common
+    // items still get valued and are clearly labeled common in the result.
+    // (forceLane is still honored if ever passed, but the UI no longer asks.)
     if (forceLane === "common") klass = "common";
     if (forceLane === "collectible") klass = "collectible";
 
-    // If the user already chose a lane (resume call), immediately clear any
-    // stale "awaiting_consent" status so the frontend poll can't re-read it
-    // and pop the consent question a second time.
-    if (forceLane) {
-      await store.setJSON(jobId, { status: "processing", klass });
-    }
+    // Mark as processing now that we're committed to running the valuation.
+    await store.setJSON(jobId, { status: "processing", klass });
 
     const isCollectible = klass === "collectible";
 
     // Lane settings:
-    // - COMMON lane: fast cheap model (Haiku), NO search, brief report, prices
-    //   from knowledge. This is the speed pass.
-    // - COLLECTIBLE lane: Sonnet, full web search, full detail. Accuracy first.
+    // - COMMON lane: Sonnet, ONE search, brief report. The lighter pass.
+    // - COLLECTIBLE lane: Sonnet, full web search (2-3), full detail. Accuracy first.
     const klassLine = isCollectible
       ? "A fast triage step flagged this as POTENTIALLY COLLECTIBLE — give it the thorough treatment: search the web (up to 3 searches) for sold comps, verify, and provide full detail. Accuracy matters most here."
       : "A fast triage step flagged this as a COMMON everyday item (not a collectible). Keep it BRIEF.\n\nHOW TO PRICE A COMMON ITEM:\n1. IDENTIFY IT SPECIFICALLY. Read any model number or brand (e.g. 'LG Magic Remote AKB75855501', not just 'a remote'). The specific item determines the real market — a genuine branded part is worth far more than a generic equivalent.\n2. Do EXACTLY ONE web search for the CURRENT market price of THAT specific item — both new and used/secondhand if available.\n3. This is a RESALE tool — assume the item is USED unless it clearly looks new-in-package. Your headline value/asking/wholesale are for a USED example.\n4. Price the used item at its REALISTIC secondhand market value:\n   - Cheap disposable commodity goods (generic cables, basic plastic housewares, worn low-value items) sell used for only a small fraction of new — sometimes a dollar or two.\n   - Items that HOLD value (genuine branded electronics, quality tools, name-brand parts, small appliances in demand) sell used much closer to new — often 50-80% of new. Do NOT slash these to a tiny fraction; price them to their real used market.\n   - Let the SEARCHED real price for the specific item guide you, not a blanket formula.\n5. The used price should sit at or below the new price, never above it.\n6. If new-vs-used differs meaningfully, add ONE scenario, condition 'If new/unused', showing the new price.\nHeadline the honest, realistic USED market value for the specific item identified.";
