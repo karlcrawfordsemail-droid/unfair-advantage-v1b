@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 
 // App version — bump on every deploy so the running site shows which build is live.
-const APP_VERSION = "v1B.16";
+const APP_VERSION = "v1B.17";
 
 /* ============================================================================
    UNFAIR ADVANTAGE — v1B
@@ -60,6 +60,13 @@ body{
 .brand-name{ font-size:1.5rem; font-weight:900; letter-spacing:-.02em; color:var(--deep); }
 .brand-version{ font-size:.7rem; font-weight:600; opacity:.5; letter-spacing:0; margin-left:3px; }
 .screen{ padding:20px 16px 28px; flex:1; }
+.sticky-price-bar{
+  position:fixed; left:50%; transform:translateX(-50%); bottom:0;
+  width:100%; max-width:520px; box-sizing:border-box;
+  padding:12px 16px calc(12px + env(safe-area-inset-bottom, 0px));
+  background:rgba(247,244,239,0.94); backdrop-filter:blur(8px);
+  border-top:1px solid #e4dcc9; z-index:50;
+}
 .tagline{ text-align:center; margin:0 0 16px; display:flex; flex-direction:column; gap:2px; }
 .tagline-lead{ font-family:var(--font-display); font-weight:800; font-size:.9rem; color:var(--deep); letter-spacing:.01em; }
 .tagline-sub{ font-size:.8rem; color:var(--muted); line-height:1.35; }
@@ -392,7 +399,7 @@ export default function App() {
 
   const [count, setCount] = useState(0); // completed valuations this session
   const [needsFeedback, setNeedsFeedback] = useState(false);
-  const [fb, setFb] = useState({ reliable: null, fast: null, note: "" });
+  const [fb, setFb] = useState({ reliable: null, note: "" });
 
   const captureIndexRef = useRef(0);
   const cameraInputRef = useRef(null);
@@ -621,7 +628,7 @@ export default function App() {
     setConsent(null);
     setCount((c) => c + 1);
     // Feedback gate: required before the next valuation unlocks, and cap at FREE_LIMIT.
-    setFb({ reliable: null, fast: null, note: "" });
+    setFb({ reliable: null, note: "" });
     setNeedsFeedback(true);
     setPhase("result");
   };
@@ -716,7 +723,7 @@ export default function App() {
 
       {/* -------------------- CAPTURE -------------------- */}
       {phase === "capture" && (
-        <div className="screen">
+        <div className="screen" style={{ paddingBottom: canPrice ? 88 : undefined }}>
           {chooserSlot !== null && (
             <div className="chooser-backdrop" onClick={() => setChooserSlot(null)}>
               <div className="chooser-sheet" onClick={(e) => e.stopPropagation()}>
@@ -800,9 +807,6 @@ export default function App() {
               : "Tap a box to add a photo (camera or gallery). Add something for scale if the size isn't obvious."}
           </div>
 
-          <button className="primary-button" disabled={!canPrice} onClick={startValuation}>
-            Price this item
-          </button>
           <button
             className="ghost-button"
             onClick={() => openPicker(captureIndexRef.current, false)}
@@ -813,12 +817,11 @@ export default function App() {
 
           <section className="optional-panel">
             <div className="optional-head">
-              <h3>Add what you know</h3>
+              <h3>Add what you know, skip the rest.</h3>
               <span className="tag">Optional</span>
             </div>
             <p className="intake-lead">
-              Answer what you know, skip the rest &mdash; more detail means a sharper result.
-              You&rsquo;re holding the item; you can see things a photo can&rsquo;t.
+              More detail means sharper results.
             </p>
 
             <div className="intake-field">
@@ -853,7 +856,7 @@ export default function App() {
             <div className="intake-field">
               <label className="field-label">Any markings?</label>
               <div className="opt-row">
-                {["None I can find", "Maker's mark/signature", "Numbers/letters", "Paper label", "Not sure"].map((m) => (
+                {["Yes", "No", "I don't know"].map((m) => (
                   <span key={m} className={"opt" + (markings === m ? " sel" : "")}
                     onClick={() => setMarkings(markings === m ? "" : m)}>{m}</span>
                 ))}
@@ -863,7 +866,7 @@ export default function App() {
             <div className="intake-field">
               <label className="field-label">Condition <span style={{ fontWeight: 600, opacity: .6 }}>(tap all that apply)</span></label>
               <div className="opt-row">
-                {["Looks flawless", "Chip", "Crack", "Scratches/wear", "Crazing", "Repair"].map((c) => {
+                {["Looks flawless", "Chip", "Crack", "Scratches/wear", "Crazing", "Repair", "Other"].map((c) => {
                   const on = condition.includes(c);
                   return (
                     <span key={c} className={"opt" + (on ? " sel" : "")}
@@ -880,7 +883,7 @@ export default function App() {
             </div>
 
             <div className="intake-field">
-              <label className="field-label">Age or where you got it?</label>
+              <label className="field-label">Age and/or where you got it</label>
               <input
                 className="intake-text" type="text" value={origin}
                 onChange={(e) => setOrigin(e.target.value)}
@@ -893,27 +896,31 @@ export default function App() {
               id="notes"
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              placeholder={"e.g. it lights up, has a chip inside, came with a set"}
+              placeholder={"e.g. set of 6, has a chip inside, came with original box"}
             />
             <div className="zip-row">
               <label className="field-label" htmlFor="zip">ZIP code</label>
               <input
                 id="zip" type="text" inputMode="numeric" value={zip}
-                onChange={(e) => setZip(e.target.value)} placeholder="37412"
+                onChange={(e) => setZip(e.target.value)} placeholder="e.g. 90210"
               />
               <div className="helper">Optional &mdash; helps price local items.</div>
             </div>
           </section>
-
-          <button className="primary-button" disabled={!canPrice} onClick={startValuation} style={{ marginTop: 4 }}>
-            Price this item
-          </button>
 
           {count > 0 && (
             <div className="count-note">
               {FREE_LIMIT - count > 0
                 ? `${FREE_LIMIT - count} free valuation${FREE_LIMIT - count === 1 ? "" : "s"} left`
                 : "Free valuations used"}
+            </div>
+          )}
+
+          {canPrice && (
+            <div className="sticky-price-bar">
+              <button className="primary-button" onClick={startValuation} style={{ margin: 0 }}>
+                Price this item
+              </button>
             </div>
           )}
         </div>
@@ -1098,7 +1105,7 @@ function ResultView({ result }) {
 
 /* ------------------------- Feedback gate ------------------------- */
 function FeedbackGate({ fb, setFb, onSubmit }) {
-  const ready = fb.reliable !== null && fb.fast !== null;
+  const ready = fb.reliable !== null;
   const pick = (k, v) => setFb((p) => ({ ...p, [k]: v }));
 
   return (
@@ -1107,7 +1114,7 @@ function FeedbackGate({ fb, setFb, onSubmit }) {
       <p className="feedback-sub">Answering unlocks your next valuation.</p>
 
       <div className="fq">
-        <div className="q">Was this price reliable enough to act on?</div>
+        <div className="q">Does the price look about right?</div>
         <div className="chip-row">
           {["Yes", "Not sure", "No"].map((v) => (
             <button key={v} className={"chip" + (fb.reliable === v ? " sel" : "")} onClick={() => pick("reliable", v)}>{v}</button>
@@ -1116,17 +1123,8 @@ function FeedbackGate({ fb, setFb, onSubmit }) {
       </div>
 
       <div className="fq">
-        <div className="q">Fast enough to use at a sale?</div>
-        <div className="chip-row">
-          {["Yes", "No"].map((v) => (
-            <button key={v} className={"chip" + (fb.fast === v ? " sel" : "")} onClick={() => pick("fast", v)}>{v}</button>
-          ))}
-        </div>
-      </div>
-
-      <div className="fq">
-        <div className="q">Anything to add? <span style={{ fontWeight: 400, color: "#8a938f" }}>(optional)</span></div>
-        <textarea className="fb-note" value={fb.note} onChange={(e) => setFb((p) => ({ ...p, note: e.target.value }))} placeholder={"What was right or wrong\u2026"} />
+        <div className="q">What's the one thing you'd change? <span style={{ fontWeight: 400, color: "#8a938f" }}>(optional)</span></div>
+        <textarea className="fb-note" value={fb.note} onChange={(e) => setFb((p) => ({ ...p, note: e.target.value }))} placeholder={"Leave blank if nothing"} />
       </div>
 
       <button className="primary-button" disabled={!ready} onClick={onSubmit}>
