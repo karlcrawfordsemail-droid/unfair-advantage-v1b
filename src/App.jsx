@@ -220,6 +220,28 @@ textarea#notes:focus, input#zip:focus{ outline:2px solid #b7a6e6; outline-offset
 
 /* loading */
 .loading-wrap{ padding:40px 20px; text-align:center; }
+.clarify-card{
+  background:#fff; border:1.5px solid #e4dcc9; border-radius:var(--radius-lg);
+  padding:22px 20px 24px; margin-top:8px;
+}
+.clarify-badge{
+  display:inline-block; font-family:var(--font-display); font-size:.68rem; font-weight:800;
+  text-transform:uppercase; letter-spacing:.09em; color:#8a6d1f; background:#fbf1d6;
+  border-radius:20px; padding:4px 11px; margin-bottom:13px;
+}
+.clarify-q{
+  margin:0 0 8px; font-family:var(--font-display); font-size:1.28rem; line-height:1.3;
+  color:var(--deep); font-weight:800;
+}
+.clarify-why{ margin:0 0 18px; font-size:.9rem; line-height:1.4; color:#4d5a55; font-weight:600; }
+.clarify-opts{ display:flex; flex-direction:column; gap:9px; }
+.clarify-opt{
+  width:100%; text-align:left; border:1.5px solid #d9d2ea; background:#fff; color:var(--ink);
+  border-radius:14px; padding:14px 16px; font-family:var(--font-body); font-size:1rem;
+  font-weight:600; cursor:pointer; transition:all .12s;
+}
+.clarify-opt:hover{ border-color:var(--deep); background:#f6f4ef; }
+.clarify-opt.ghost{ border-style:dashed; color:var(--muted); font-weight:600; }
 .spinner{
   width:44px; height:44px; margin:0 auto 20px; border-radius:50%;
   border:4px solid var(--accent-soft); border-top-color:var(--accent);
@@ -359,7 +381,8 @@ export default function App() {
   const [condition, setCondition] = useState([]);  // multi-select
   const [origin, setOrigin] = useState("");
 
-  const [phase, setPhase] = useState("capture"); // capture | loading | result | limit
+  const [phase, setPhase] = useState("capture"); // capture | loading | clarify | result | limit
+  const [clarify, setClarify] = useState(null); // { jobId, klass, question, options, whyItMatters }
   const [loadingMsg, setLoadingMsg] = useState(COMMON_MSGS[0]);
   const [error, setError] = useState(null);
   const [result, setResult] = useState(null);
@@ -499,13 +522,14 @@ export default function App() {
   /* ---- the pipeline: upload -> start -> poll (mirrors v37 contract) ---- */
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-  const runPipeline = async ({ jobId, forceLane } = {}) => {
+  const runPipeline = async ({ jobId, forceLane, clarification, priorKlass } = {}) => {
     const active = filledPhotos();
     const id = jobId || "job_" + Date.now() + "_" + Math.random().toString(36).slice(2, 10);
 
     setPhase("loading");
     setError(null);
     if (!jobId) startTrack("common"); // neutral opener until triage lands
+    else startTrack(priorKlass === "collectible" ? "collectible" : "common");
 
     try {
       // Upload photos one at a time (only on first pass; resume reuses blobs).
@@ -542,6 +566,7 @@ export default function App() {
         zip: zip.trim(),
       };
       if (forceLane) startBody.forceLane = forceLane;
+      if (clarification) { startBody.clarification = clarification; startBody.priorKlass = priorKlass || null; }
 
       const start = await fetch("/.netlify/functions/start-valuation-background", {
         method: "POST",
@@ -561,6 +586,18 @@ export default function App() {
         const pd = await poll.json();
 
         if (pd.klass) startTrack(pd.klass);
+        if (pd.status === "needs_input" && pd.question) {
+          stopTrack();
+          setClarify({
+            jobId: id,
+            klass: pd.klass || "collectible",
+            question: pd.question,
+            options: Array.isArray(pd.options) ? pd.options : ["Just price your best guess"],
+            whyItMatters: pd.whyItMatters || "",
+          });
+          setPhase("clarify");
+          return;
+        }
         if (pd.status === "done" && pd.result) {
           finish(pd);
           return;
@@ -596,13 +633,36 @@ export default function App() {
   };
 
   const startValuation = () => { if (canPrice) runPipeline({}); };
+
+  // User answered the clarifying question → resume the SAME job with the answer.
+  const answerClarify = (answer) => {
+    if (!clarify) return;
+    const c = clarify;
+    setClarify(null);
+    // "reshoot" bails back to capture without spending another call.
+    if (/reshoot/i.test(answer)) { setPhase("capture"); return; }
+    runPipeline({
+      jobId: c.jobId,
+      clarification: answer,
+      priorKlass: c.klass,
+    });
+  };
+
   /* ---- reset for the next item ---- */
   const nextItem = () => {
-    setPhotos([null, null, null]);
+    setPhotos([null, null, null, null, null]);
+    setExtraVisible(0);
     setNotes("");
+    setWhatIsIt("");
+    setMaterial("");
+    setSizeText("");
+    setMarkings("");
+    setCondition([]);
+    setOrigin("");
     setResult(null);
     setError(null);
     setConsent(null);
+    setClarify(null);
     setCostInfo(null);
     setTiming(null);
     setNeedsFeedback(false);
@@ -766,7 +826,7 @@ export default function App() {
               <input
                 className="intake-text" type="text" value={whatIsIt}
                 onChange={(e) => setWhatIsIt(e.target.value)}
-                placeholder="e.g. drinking glass, vase, bowl, lamp"
+                placeholder="e.g. vase, lamp, chair, figurine"
               />
             </div>
 
@@ -786,7 +846,7 @@ export default function App() {
               <input
                 className="intake-text" type="text" value={sizeText}
                 onChange={(e) => setSizeText(e.target.value)}
-                placeholder="e.g. 6 inches tall, or about the size of a soda can"
+                placeholder="Rough measurements, or compare to a known item like a soda can, softball, or quarter"
               />
             </div>
 
@@ -833,7 +893,7 @@ export default function App() {
               id="notes"
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              placeholder={"Anything the fields above don't cover"}
+              placeholder={"e.g. it lights up, has a chip inside, came with a set"}
             />
             <div className="zip-row">
               <label className="field-label" htmlFor="zip">ZIP code</label>
@@ -844,6 +904,10 @@ export default function App() {
               <div className="helper">Optional &mdash; helps price local items.</div>
             </div>
           </section>
+
+          <button className="primary-button" disabled={!canPrice} onClick={startValuation} style={{ marginTop: 4 }}>
+            Price this item
+          </button>
 
           {count > 0 && (
             <div className="count-note">
@@ -862,6 +926,30 @@ export default function App() {
             <div className="spinner" />
             <div className="loading-msg">{loadingMsg}</div>
           </div>
+        </div>
+      )}
+
+      {/* -------------------- CLARIFY (tool has one question) -------------------- */}
+      {phase === "clarify" && clarify && (
+        <div className="screen">
+          <section className="clarify-card">
+            <div className="clarify-badge">One quick question</div>
+            <h2 className="clarify-q">{clarify.question}</h2>
+            {clarify.whyItMatters && (
+              <p className="clarify-why">{clarify.whyItMatters}</p>
+            )}
+            <div className="clarify-opts">
+              {clarify.options.map((opt, i) => (
+                <button
+                  key={i}
+                  className={"clarify-opt" + (/best guess/i.test(opt) ? " ghost" : "")}
+                  onClick={() => answerClarify(opt)}
+                >
+                  {opt}
+                </button>
+              ))}
+            </div>
+          </section>
         </div>
       )}
 

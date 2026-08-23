@@ -25,7 +25,15 @@ PROCESS (in order):
 
    - ASKING PRICE IS NOT VALUE (applies to EVERY item, both lanes): Listed/asking prices are aspirational and routinely far above what items actually sell for. Price to REALIZED (sold) value. When your comps are asking prices, discount them to estimated sold value and say so in the reasoning. NEVER headline an asking-price range as the valuation. For an UNMARKED, common-category item (plain glassware, generic décor, ordinary household goods), this discipline is mandatory: do not let a handful of hopeful asking listings inflate a $2 item into a $10 one. If the honest realized value of a common unmarked item is only a dollar or a few dollars, SAY the low number — the tool's credibility depends on being willing to say "this is worth very little" when it is true. Never impose an artificial floor.
 
+   - ASK BEFORE YOU GUESS (clarification gate — critical): Sometimes the photos and notes leave a MATERIAL question you cannot resolve — most often a maker's mark or pattern you cannot cleanly read, where the alternatives price very differently. When BOTH of these are true: (a) you genuinely cannot resolve it from the images and the user's notes, AND (b) the unknown would move the price MATERIALLY — as a rule of thumb, by more than ~25% OR more than ~$50, whichever is larger — then DO NOT guess and price. Instead STOP and return a clarification request in this exact JSON shape and NOTHING else:
+     { "needsInput": true, "question": "<one plain question naming the specific ambiguity>", "options": ["<2-4 concrete answers>", "Not sure — I'll reshoot", "Just price your best guess"], "whyItMatters": "<one sentence: how much the answer moves the price>" }
+     ALWAYS include "Just price your best guess" as the LAST option so the user is never trapped. Ask AT MOST ONE question — pick the single highest-impact unknown; never chain questions. Do NOT ask when the unknown is small-dollar or when you can price it with an honest range and a cantVerify note — reserve the pause for genuinely price-moving, unresolvable ambiguity (an unreadable mark that swings a set by $150, not a minor condition question). If the user's notes already answer it, do not ask. When in doubt on a CHEAP or COMMON item, do NOT ask — just price it.
+
 2. DECIDE THE PRICING BASIS (critical):
+   - BUILD THE PRICE FROM THE SPECIFICS — DO NOT RECALL A CATEGORY BALLPARK: Price the SPECIFIC item in front of you, reconstructed from its confirmed particulars (exact pattern, exact piece count, specific pieces present, condition) — never a remembered round number for the general category. Two different sets (different pattern, different count) MUST NOT land on the same headline price; if your inputs differ, your output must differ. If you find yourself anchoring on a familiar round figure for the item's genre, stop and rebuild the number from the parts.
+   - SETS AND MULTI-PIECE LOTS — PIECE COUNT MOVES THE PRICE: More pieces are worth more money. Establish a realistic per-piece sold value for THAT specific pattern, then total it with a set curve: each additional common place-setting piece (extra plates, cups, saucers) adds real but DIMINISHING value; SERVING and scarce pieces (platters, lidded sugars, large serving bowls, hard-to-find forms) add substantially MORE per piece and often carry a disproportionate share of set value. A confirmed larger, more complete set MUST price higher than a smaller or less-certain one of the same pattern — never cap them at the same number. Weight serving pieces heavily; do not flatten the count into a single genre ceiling.
+   - RANGE WIDTH TRACKS INPUT CERTAINTY: The headline range width must reflect how much you actually know. When the user has CONFIRMED the identity, pattern, piece count, and condition (or you can read them cleanly), COMMIT to a NARROW headline range — a High-confidence, fully-specified item should NOT carry a 50-60% spread. Reserve wide ranges for genuinely thin information. Put the up/down possibilities in "scenarios" as named, checkable conditions ("If any pieces are chipped → lower", "If saucers are the rarer rayed-back style → higher") — those scenario branches MAY extend beyond the narrow headline, since they are hypotheticals; the headline itself reflects what is confirmed. A tight headline plus honest scenario branches beats a vague wide band.
+
    - COMMON LOCAL-MARKET item (furniture, household goods, décor, tools, toys, common glassware): price for LOCAL sale. ZIP matters. These move for a fraction of retail.
    - COLLECTIBLE / NATIONAL-MARKET item (identifiable maker, art pottery, antiques, sought brands, real online collector market): price to the NATIONAL market. ZIP irrelevant. If worth notably more than local money, SAY SO — tell a seller to sell online, alert a buyer it's a score.
    - SPECIFIC-BUYER item (branded/personalized goods still relevant to a named active party, machine parts, club/team items): do NOT price as worthless commodity. Price against that buyer's REPLACEMENT COST. If the user's notes say a specific buyer exists, weight that heavily.
@@ -86,7 +94,7 @@ export default async (req) => {
     // We read them back here. This keeps this background function's request
     // body far under the 256KB background-function limit.
     const body = await req.json();
-    const { notes, mode, zip, photoCount, forceLane } = body;
+    const { notes, mode, zip, photoCount, forceLane, clarification, priorKlass } = body;
     jobId = body.jobId;
 
     if (!jobId) {
@@ -148,6 +156,11 @@ export default async (req) => {
     // AND we use it to route the valuation down the fast lane or the deep lane.
     let klass = "common";
     const triageStart = Date.now();
+    // On a clarification round, we already classified on the first pass —
+    // reuse that lane and skip the (paid) triage call entirely.
+    if (clarification && priorKlass) {
+      klass = priorKlass === "collectible" ? "collectible" : "common";
+    } else {
     try {
       const classifyResp = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
@@ -185,6 +198,7 @@ export default async (req) => {
       // If classification fails, default to common lane; never block valuation.
       timing.triageMs = Date.now() - triageStart;
     }
+    }
 
     // NO CONSENT GATE: this tool is for valuing potentially rare/collectible
     // items, so every item runs straight through to the deep valuation on its
@@ -205,7 +219,10 @@ export default async (req) => {
     const klassLine = isCollectible
       ? "A fast triage step flagged this as POTENTIALLY COLLECTIBLE — give it the thorough treatment: search the web (up to 3 searches) for sold comps, verify, and provide full detail. Accuracy matters most here."
       : "A fast triage step flagged this as a COMMON everyday item (not a collectible). Keep it BRIEF.\n\nHOW TO PRICE A COMMON ITEM:\n1. IDENTIFY IT SPECIFICALLY. Read any model number or brand (e.g. 'LG Magic Remote AKB75855501', not just 'a remote'). The specific item determines the real market — a genuine branded part is worth far more than a generic equivalent.\n2. Do EXACTLY ONE web search for the CURRENT market price of THAT specific item — both new and used/secondhand if available.\n3. This is a RESALE tool — assume the item is USED unless it clearly looks new-in-package. Your headline value/asking/wholesale are for a USED example.\n4. Price the used item at its REALISTIC secondhand market value:\n   - Cheap disposable commodity goods (generic cables, basic plastic housewares, worn low-value items) sell used for only a small fraction of new — sometimes a dollar or two.\n   - Items that HOLD value (genuine branded electronics, quality tools, name-brand parts, small appliances in demand) sell used much closer to new — often 50-80% of new. Do NOT slash these to a tiny fraction; price them to their real used market.\n   - Let the SEARCHED real price for the specific item guide you, not a blanket formula.\n5. The used price should sit at or below the new price, never above it.\n6. If new-vs-used differs meaningfully, add ONE scenario, condition 'If new/unused', showing the new price.\nHeadline the honest, realistic USED market value for the specific item identified.";
-    const userTextFinal = `${klassLine}\n\n${userText}`;
+    const clarLine = clarification && clarification.trim()
+      ? `\n\nIMPORTANT — the user was asked a clarifying question and answered: "${clarification.trim()}". Treat this answer as AUTHORITATIVE and price accordingly. Do NOT ask again — you must return a full valuation this round.`
+      : "";
+    const userTextFinal = `${klassLine}\n\n${userText}${clarLine}`;
 
     const model = "claude-sonnet-4-6";
     const maxTokens = isCollectible ? 3000 : 1200;
@@ -299,6 +316,29 @@ export default async (req) => {
 
     let parsed = tryParse(lastText);
     if (!looksValid(parsed)) parsed = tryParse(allText);
+
+    // --- CLARIFY GATE: the model may return a question instead of a price ---
+    // (only on the FIRST pass; on a clarification round we forbid re-asking).
+    const clarQuestion = parsed && parsed.needsInput
+      ? parsed
+      : tryParse(lastText)?.needsInput ? tryParse(lastText) : null;
+    if (!clarification && clarQuestion && clarQuestion.needsInput && clarQuestion.question) {
+      // Do NOT delete photos — the second (answering) pass reads them again.
+      const opts = Array.isArray(clarQuestion.options) && clarQuestion.options.length
+        ? clarQuestion.options
+        : ["Just price your best guess"];
+      // Guarantee the escape hatch is always present.
+      if (!opts.some((o) => /best guess/i.test(o))) opts.push("Just price your best guess");
+      await store.setJSON(jobId, {
+        status: "needs_input",
+        klass,
+        question: String(clarQuestion.question),
+        options: opts,
+        whyItMatters: clarQuestion.whyItMatters ? String(clarQuestion.whyItMatters) : "",
+      });
+      console.log(`[CLARIFY] job=${jobId} asked: ${clarQuestion.question}`);
+      return new Response("needs input");
+    }
 
     if (!looksValid(parsed)) {
       // Log what actually came back so we can diagnose format issues.
