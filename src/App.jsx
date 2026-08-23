@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 
 // App version — bump on every deploy so the running site shows which build is live.
-const APP_VERSION = "v1B.15";
+const APP_VERSION = "v1B.16";
 
 /* ============================================================================
    UNFAIR ADVANTAGE — v1B
@@ -200,6 +200,24 @@ input#zip{
 .helper{ font-size:.75rem; color:var(--muted); margin-top:5px; }
 textarea#notes:focus, input#zip:focus{ outline:2px solid #b7a6e6; outline-offset:1px; }
 
+/* structured intake */
+.intake-field{ margin-bottom:14px; }
+.intake-hint{ font-size:.75rem; color:var(--muted); margin:0 0 7px; font-weight:600; }
+.intake-text{
+  width:100%; border:1.5px solid #d9d2ea; border-radius:12px; padding:10px 11px;
+  font-family:var(--font-body); font-size:.92rem; color:var(--ink); background:#fff;
+}
+.intake-text:focus{ outline:2px solid #b7a6e6; outline-offset:1px; }
+.opt-row{ display:flex; flex-wrap:wrap; gap:7px; }
+.opt{
+  border:1.5px solid #d9d2ea; background:#fff; color:var(--ink);
+  border-radius:20px; padding:7px 13px; font-family:var(--font-body); font-size:.86rem;
+  font-weight:600; cursor:pointer; user-select:none; transition:all .12s;
+}
+.opt:hover{ border-color:#b7a6e6; }
+.opt.sel{ background:var(--deep); border-color:var(--deep); color:#fff; }
+.intake-lead{ margin:2px 0 12px; font-size:.86rem; line-height:1.4; color:#4d5a55; font-weight:700; }
+
 /* loading */
 .loading-wrap{ padding:40px 20px; text-align:center; }
 .spinner{
@@ -333,6 +351,13 @@ export default function App() {
   const [chooserSlot, setChooserSlot] = useState(null); // slot awaiting camera/gallery choice (mobile)
   const [notes, setNotes] = useState("");
   const [zip, setZip] = useState("");
+  // Structured intake (shown after photos). All optional; assembled into notes on submit.
+  const [whatIsIt, setWhatIsIt] = useState("");
+  const [material, setMaterial] = useState("");   // single-select
+  const [sizeText, setSizeText] = useState("");
+  const [markings, setMarkings] = useState("");    // single-select
+  const [condition, setCondition] = useState([]);  // multi-select
+  const [origin, setOrigin] = useState("");
 
   const [phase, setPhase] = useState("capture"); // capture | loading | result | limit
   const [loadingMsg, setLoadingMsg] = useState(COMMON_MSGS[0]);
@@ -497,10 +522,23 @@ export default function App() {
         }
       }
 
+      // Assemble the structured intake + freeform notes into one clean string.
+      // The user's stated identity/material/markings are the highest-value
+      // signals — the backend treats a stated identity as authoritative.
+      const parts = [];
+      if (whatIsIt.trim()) parts.push(`What it is (user-stated): ${whatIsIt.trim()}`);
+      if (material) parts.push(`Material: ${material}`);
+      if (sizeText.trim()) parts.push(`Approximate size: ${sizeText.trim()}`);
+      if (markings) parts.push(`Markings: ${markings}`);
+      if (condition.length) parts.push(`Condition: ${condition.join(", ")}`);
+      if (origin.trim()) parts.push(`Age / where acquired: ${origin.trim()}`);
+      if (notes.trim()) parts.push(`Other notes: ${notes.trim()}`);
+      const assembledNotes = parts.join("\n");
+
       const startBody = {
         jobId: id,
         photoCount: active.length,
-        notes: notes.trim(),
+        notes: assembledNotes,
         zip: zip.trim(),
       };
       if (forceLane) startBody.forceLane = forceLane;
@@ -718,16 +756,84 @@ export default function App() {
               <h3>Add what you know</h3>
               <span className="tag">Optional</span>
             </div>
-            <p className="optional-copy">
-              Anything the photos can't show &mdash; where it came from, a mark you couldn't
-              capture, or how it works.
+            <p className="intake-lead">
+              Answer what you know, skip the rest &mdash; more detail means a sharper result.
+              You&rsquo;re holding the item; you can see things a photo can&rsquo;t.
             </p>
-            <label className="field-label" htmlFor="notes">Extra details</label>
+
+            <div className="intake-field">
+              <label className="field-label">What is it?</label>
+              <input
+                className="intake-text" type="text" value={whatIsIt}
+                onChange={(e) => setWhatIsIt(e.target.value)}
+                placeholder="e.g. drinking glass, vase, bowl, lamp"
+              />
+            </div>
+
+            <div className="intake-field">
+              <label className="field-label">Material</label>
+              <div className="opt-row">
+                {["Glass", "Crystal", "Ceramic/Pottery", "Metal", "Wood", "Plastic", "Not sure"].map((m) => (
+                  <span key={m} className={"opt" + (material === m ? " sel" : "")}
+                    onClick={() => setMaterial(material === m ? "" : m)}>{m}</span>
+                ))}
+              </div>
+            </div>
+
+            <div className="intake-field">
+              <label className="field-label">Approximate size</label>
+              <p className="intake-hint">Even a rough answer helps.</p>
+              <input
+                className="intake-text" type="text" value={sizeText}
+                onChange={(e) => setSizeText(e.target.value)}
+                placeholder="e.g. 6 inches tall, or about the size of a soda can"
+              />
+            </div>
+
+            <div className="intake-field">
+              <label className="field-label">Any markings?</label>
+              <div className="opt-row">
+                {["None I can find", "Maker's mark/signature", "Numbers/letters", "Paper label", "Not sure"].map((m) => (
+                  <span key={m} className={"opt" + (markings === m ? " sel" : "")}
+                    onClick={() => setMarkings(markings === m ? "" : m)}>{m}</span>
+                ))}
+              </div>
+            </div>
+
+            <div className="intake-field">
+              <label className="field-label">Condition <span style={{ fontWeight: 600, opacity: .6 }}>(tap all that apply)</span></label>
+              <div className="opt-row">
+                {["Looks flawless", "Chip", "Crack", "Scratches/wear", "Crazing", "Repair"].map((c) => {
+                  const on = condition.includes(c);
+                  return (
+                    <span key={c} className={"opt" + (on ? " sel" : "")}
+                      onClick={() => {
+                        setCondition((prev) => {
+                          if (c === "Looks flawless") return on ? [] : ["Looks flawless"];
+                          const next = prev.filter((x) => x !== "Looks flawless");
+                          return on ? next.filter((x) => x !== c) : [...next, c];
+                        });
+                      }}>{c}</span>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="intake-field">
+              <label className="field-label">Age or where you got it?</label>
+              <input
+                className="intake-text" type="text" value={origin}
+                onChange={(e) => setOrigin(e.target.value)}
+                placeholder="e.g. inherited, thrift store, had it since the 70s"
+              />
+            </div>
+
+            <label className="field-label" htmlFor="notes">Anything else</label>
             <textarea
               id="notes"
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              placeholder={"Came from a 1940s estate\nPlays music when wound\nStamped mark I couldn't get a clear photo of"}
+              placeholder={"Anything the fields above don't cover"}
             />
             <div className="zip-row">
               <label className="field-label" htmlFor="zip">ZIP code</label>
