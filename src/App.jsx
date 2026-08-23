@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 
 // App version — bump on every deploy so the running site shows which build is live.
-const APP_VERSION = "v1B.18";
+const APP_VERSION = "v1B.19";
 
 /* ============================================================================
    UNFAIR ADVANTAGE — v1B
@@ -15,6 +15,22 @@ const APP_VERSION = "v1B.18";
 
 const MAX_PHOTOS = 5;
 const FREE_LIMIT = 5; // free valuations before feedback is required to continue
+
+// Stable per-device id for the server-side usage cap. Generated once and kept
+// in localStorage; if cleared, a new id is minted (fresh device from the
+// server's view) — acceptable for the free tier, replaced by real accounts later.
+function getDeviceId() {
+  try {
+    let id = localStorage.getItem("ua_device");
+    if (!id) {
+      id = "d_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+      localStorage.setItem("ua_device", id);
+    }
+    return id;
+  } catch {
+    return "d_ephemeral";
+  }
+}
 
 // The three core capture slots, in order. Labels/copy are the settled v1B wording.
 const SLOTS = [
@@ -641,7 +657,24 @@ export default function App() {
     setPhase("capture");
   };
 
-  const startValuation = () => { if (canPrice) runPipeline({}); };
+  const startValuation = async () => {
+    if (!canPrice) return;
+    // Server-side cap: consume one credit before running. Count lives in
+    // Blobs keyed to a device id, so clearing browser storage can't reset it.
+    try {
+      const r = await fetch("/.netlify/functions/usage", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ deviceId: getDeviceId(), action: "consume" }),
+      });
+      const u = await r.json();
+      if (u && u.allowed === false) { setPhase("limit"); return; }
+    } catch (e) {
+      // If the usage service is unreachable, fail OPEN (let them value) —
+      // better a rare free extra than blocking a paying tester on a hiccup.
+    }
+    runPipeline({});
+  };
 
   // User answered the clarifying question → resume the SAME job with the answer.
   const answerClarify = (answer) => {
@@ -681,14 +714,25 @@ export default function App() {
   };
 
   const submitFeedback = () => {
-    // Feedback is the price of admission. Recorded client-side for now; the
-    // payload shape is ready to POST to a collector endpoint when one exists.
-    const payload = { ...fb, item: result && result.id ? result.id : "unknown", ts: Date.now() };
-    try {
-      const prev = JSON.parse(localStorage.getItem("ua_feedback") || "[]");
-      prev.push(payload);
-      localStorage.setItem("ua_feedback", JSON.stringify(prev));
-    } catch (e) { /* storage may be unavailable; non-fatal */ }
+    // Feedback is the price of admission. POST to the server; keep a local
+    // copy as a fallback so nothing is lost if the network hiccups.
+    const payload = {
+      reliable: fb.reliable,
+      change: fb.note || "",
+      item: result && result.id ? result.id : "unknown",
+      version: APP_VERSION,
+    };
+    fetch("/.netlify/functions/feedback", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload),
+    }).catch(() => {
+      try {
+        const prev = JSON.parse(localStorage.getItem("ua_feedback") || "[]");
+        prev.push({ ...payload, ts: Date.now() });
+        localStorage.setItem("ua_feedback", JSON.stringify(prev));
+      } catch (e) { /* non-fatal */ }
+    });
     setNeedsFeedback(false);
   };
 
