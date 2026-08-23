@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 
 // App version — bump on every deploy so the running site shows which build is live.
-const APP_VERSION = "v1B.17";
+const APP_VERSION = "v1B.18";
 
 /* ============================================================================
    UNFAIR ADVANTAGE — v1B
@@ -385,7 +385,8 @@ export default function App() {
   const [material, setMaterial] = useState("");   // single-select
   const [sizeText, setSizeText] = useState("");
   const [markings, setMarkings] = useState("");    // single-select
-  const [condition, setCondition] = useState([]);  // multi-select
+  const [condition, setCondition] = useState("");   // single-select grade
+  const [damage, setDamage] = useState([]);         // multi-select defects
   const [origin, setOrigin] = useState("");
 
   const [phase, setPhase] = useState("capture"); // capture | loading | clarify | result | limit
@@ -561,7 +562,8 @@ export default function App() {
       if (material) parts.push(`Material: ${material}`);
       if (sizeText.trim()) parts.push(`Approximate size: ${sizeText.trim()}`);
       if (markings) parts.push(`Markings: ${markings}`);
-      if (condition.length) parts.push(`Condition: ${condition.join(", ")}`);
+      if (condition) parts.push(`Condition: ${condition}`);
+      if (damage.length) parts.push(`Damage: ${damage.join(", ")}`);
       if (origin.trim()) parts.push(`Age / where acquired: ${origin.trim()}`);
       if (notes.trim()) parts.push(`Other notes: ${notes.trim()}`);
       const assembledNotes = parts.join("\n");
@@ -664,7 +666,8 @@ export default function App() {
     setMaterial("");
     setSizeText("");
     setMarkings("");
-    setCondition([]);
+    setCondition("");
+    setDamage([]);
     setOrigin("");
     setResult(null);
     setError(null);
@@ -744,7 +747,7 @@ export default function App() {
             <span className="tagline-sub">Price range estimates from real sales data. Knowledge is power.</span>
           </div>
           <h2>Photograph the item.</h2>
-          <p className="lead">Three quick views give the strongest price estimate. Fill any you can.</p>
+          <p className="lead">Three quick views give the strongest price estimate. Add up to 5 photos.</p>
 
           {error && <div className="error-box">{error}</div>}
 
@@ -864,19 +867,23 @@ export default function App() {
             </div>
 
             <div className="intake-field">
-              <label className="field-label">Condition <span style={{ fontWeight: 600, opacity: .6 }}>(tap all that apply)</span></label>
+              <label className="field-label">Condition</label>
               <div className="opt-row">
-                {["Looks flawless", "Chip", "Crack", "Scratches/wear", "Crazing", "Repair", "Other"].map((c) => {
-                  const on = condition.includes(c);
+                {["New", "Like New", "Good", "Fair", "Poor"].map((c) => (
+                  <span key={c} className={"opt" + (condition === c ? " sel" : "")}
+                    onClick={() => setCondition(condition === c ? "" : c)}>{c}</span>
+                ))}
+              </div>
+            </div>
+
+            <div className="intake-field">
+              <label className="field-label">Damage, if any <span style={{ fontWeight: 600, opacity: .6 }}>(skip if none)</span></label>
+              <div className="opt-row">
+                {["Chip", "Crack", "Scratches/wear", "Crazing", "Repair", "Other"].map((d) => {
+                  const on = damage.includes(d);
                   return (
-                    <span key={c} className={"opt" + (on ? " sel" : "")}
-                      onClick={() => {
-                        setCondition((prev) => {
-                          if (c === "Looks flawless") return on ? [] : ["Looks flawless"];
-                          const next = prev.filter((x) => x !== "Looks flawless");
-                          return on ? next.filter((x) => x !== c) : [...next, c];
-                        });
-                      }}>{c}</span>
+                    <span key={d} className={"opt" + (on ? " sel" : "")}
+                      onClick={() => setDamage((prev) => on ? prev.filter((x) => x !== d) : [...prev, d])}>{d}</span>
                   );
                 })}
               </div>
@@ -902,7 +909,7 @@ export default function App() {
               <label className="field-label" htmlFor="zip">ZIP code</label>
               <input
                 id="zip" type="text" inputMode="numeric" value={zip}
-                onChange={(e) => setZip(e.target.value)} placeholder="e.g. 90210"
+                onChange={(e) => setZip(e.target.value)} placeholder="e.g. 12345"
               />
               <div className="helper">Optional &mdash; helps price local items.</div>
             </div>
@@ -1110,7 +1117,7 @@ function FeedbackGate({ fb, setFb, onSubmit }) {
 
   return (
     <div className="feedback-card">
-      <h3>Two quick questions</h3>
+      <h3>How's the tool working?</h3>
       <p className="feedback-sub">Answering unlocks your next valuation.</p>
 
       <div className="fq">
@@ -1123,7 +1130,7 @@ function FeedbackGate({ fb, setFb, onSubmit }) {
       </div>
 
       <div className="fq">
-        <div className="q">What's the one thing you'd change? <span style={{ fontWeight: 400, color: "#8a938f" }}>(optional)</span></div>
+        <div className="q">What would you change about the tool? <span style={{ fontWeight: 400, color: "#8a938f" }}>(optional)</span></div>
         <textarea className="fb-note" value={fb.note} onChange={(e) => setFb((p) => ({ ...p, note: e.target.value }))} placeholder={"Leave blank if nothing"} />
       </div>
 
