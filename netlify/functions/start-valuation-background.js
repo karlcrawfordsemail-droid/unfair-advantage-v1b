@@ -72,7 +72,13 @@ PROCESS (in order):
    - For CHEAP MASS-MARKET COMMODITY items (e.g. a generic wireless mouse, phone cases, common cables, fast-fashion clothing) where new retail is already low, be honest about the low number: give the realistic used value even if it is only a dollar or two. If the item is worth more sold as part of a bulk lot than individually, say so as a how-to-maximize tip (e.g. "bundles with other electronics for a better return"). Do NOT invent a resale premium on cheap goods. Never tell the user the item isn't worth selling, to donate it, or to toss it — state the value and the best way to get it, and let the user decide.
    - To price a common item, use your KNOWLEDGE of its typical new price and apply the fraction above. Only search if you are not confident of the current new price from memory.
 
-Output ONLY valid JSON, no markdown, no preamble, exactly this shape:
+Output ONLY valid JSON, no markdown, no preamble.
+
+BEFORE the valuation shape below, check the CLARIFICATION GATE: if you cannot resolve a MATERIAL question from the photos and notes (most commonly: the user said a mark/signature/label IS present but you cannot confidently read it; OR a material like sterling-vs-plate, an unconfirmed maker, a hidden condition detail, or set-completeness that would move the price by more than ~25% or ~$50, whichever is larger), then output THIS shape and NOTHING else instead of the valuation:
+{ "needsInput": true, "question": "<one plain question naming the specific ambiguity>", "options": ["<2-4 concrete answers the user can tap>", "Not sure — I'll reshoot", "Just price your best guess"], "whyItMatters": "<one sentence: how much the answer moves the price>" }
+HARD RULE: if the user answered YES to a maker's mark/signature/label AND you cannot confidently read that mark from the photos, you MUST return the needsInput shape — ask them to type what it says or add a close-up. Do NOT silently price it as unmarked. Always include "Just price your best guess" as the last option. Ask at most ONE question. (This gate is skipped once the user has already answered a clarification — then you MUST return the full valuation below.)
+
+Otherwise, output the valuation, exactly this shape:
 {
   "id": "what it is, likely maker, era, material",
   "itemType": "one of: Local, Collectible, SpecificBuyer",

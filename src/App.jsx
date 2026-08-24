@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 
 // App version — bump on every deploy so the running site shows which build is live.
-const APP_VERSION = "v1B.22";
+const APP_VERSION = "v1B.24";
 
 /* ============================================================================
    UNFAIR ADVANTAGE — v1B
@@ -709,6 +709,7 @@ export default function App() {
     setCostInfo(null);
     setTiming(null);
     setNeedsFeedback(false);
+    try { window.scrollTo({ top: 0, behavior: "auto" }); } catch (e) { /* non-fatal */ }
     if (count >= FREE_LIMIT) setPhase("limit");
     else setPhase("capture");
   };
@@ -854,14 +855,6 @@ export default function App() {
               : "Tap a box to add a photo (camera or gallery). Add something for scale if the size isn't obvious."}
           </div>
 
-          <button
-            className="ghost-button"
-            onClick={() => openPicker(captureIndexRef.current, false)}
-            style={{ display: canPrice ? "block" : "none" }}
-          >
-            Add from photo library instead
-          </button>
-
           <section className="optional-panel">
             <div className="optional-head">
               <h3>Add what you know, skip the rest.</h3>
@@ -901,7 +894,7 @@ export default function App() {
             </div>
 
             <div className="intake-field">
-              <label className="field-label">Any markings?</label>
+              <label className="field-label">Any maker's mark, signature, or label?</label>
               <div className="opt-row">
                 {["Yes", "No", "I don't know"].map((m) => (
                   <span key={m} className={"opt" + (markings === m ? " sel" : "")}
@@ -1014,7 +1007,7 @@ export default function App() {
 
       {/* -------------------- RESULT -------------------- */}
       {phase === "result" && result && (
-        <div className="screen">
+        <div className="screen" style={{ paddingBottom: 84 }}>
           <ResultView result={result} />
 
           {showCost && (costInfo || timing) && (
@@ -1027,9 +1020,11 @@ export default function App() {
           {needsFeedback ? (
             <FeedbackGate fb={fb} setFb={setFb} onSubmit={submitFeedback} />
           ) : (
-            <button className="primary-button" style={{ marginTop: 18 }} onClick={nextItem}>
-              {count >= FREE_LIMIT ? "That's all your free valuations" : "Value another item"}
-            </button>
+            <div className="sticky-price-bar">
+              <button className="primary-button" style={{ margin: 0 }} onClick={nextItem}>
+                {count >= FREE_LIMIT ? "That's all your free valuations" : "Value another item"}
+              </button>
+            </div>
           )}
         </div>
       )}
