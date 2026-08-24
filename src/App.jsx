@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 
 // App version — bump on every deploy so the running site shows which build is live.
-const APP_VERSION = "v1B.21";
+const APP_VERSION = "v1B.22";
 
 /* ============================================================================
    UNFAIR ADVANTAGE — v1B
@@ -14,7 +14,7 @@ const APP_VERSION = "v1B.21";
    ========================================================================== */
 
 const MAX_PHOTOS = 5;
-const FREE_LIMIT = 5; // free valuations before feedback is required to continue
+const FREE_LIMIT = 1000; // DEV: raised from 5 for testing — set back to 5 before real testers
 
 // Stable per-device id for the server-side usage cap. Generated once and kept
 // in localStorage; if cleared, a new id is minted (fresh device from the
