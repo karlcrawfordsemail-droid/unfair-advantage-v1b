@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 
 // App version — bump on every deploy so the running site shows which build is live.
-const APP_VERSION = "v1B.19";
+const APP_VERSION = "v1B.20";
 
 /* ============================================================================
    UNFAIR ADVANTAGE — v1B
