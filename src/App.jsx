@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 
 // App version — bump on every deploy so the running site shows which build is live.
-const APP_VERSION = "v1B.24";
+const APP_VERSION = "v1B.25";
 
 /* ============================================================================
    UNFAIR ADVANTAGE — v1B
@@ -76,8 +76,23 @@ body{
 .brand-name{ font-size:1.5rem; font-weight:900; letter-spacing:-.02em; color:var(--deep); }
 .brand-version{ font-size:.7rem; font-weight:600; opacity:.5; letter-spacing:0; margin-left:3px; }
 .screen{ padding:20px 16px 28px; flex:1; }
-.sticky-price-bar{
-  position:fixed; left:50%; transform:translateX(-50%); bottom:0;
+.followup{ margin-top:22px; border-top:1px solid #e4dcc9; padding-top:18px; }
+.followup-title{ font-family:var(--font-display); font-weight:800; font-size:1rem; color:var(--deep); margin-bottom:10px; }
+.followup-thread{ display:flex; flex-direction:column; gap:8px; margin-bottom:12px; }
+.fu-msg{ padding:10px 13px; border-radius:14px; font-size:.92rem; line-height:1.4; max-width:90%; }
+.fu-user{ align-self:flex-end; background:var(--deep); color:#fff; border-bottom-right-radius:4px; }
+.fu-tool{ align-self:flex-start; background:#eef1ee; color:var(--ink); border-bottom-left-radius:4px; }
+.fu-typing{ opacity:.6; font-style:italic; }
+.fu-photo-chip{ position:relative; display:inline-block; margin-bottom:10px; }
+.fu-photo-chip img{ height:56px; border-radius:8px; border:1px solid #d9d2ea; }
+.fu-photo-chip button{ position:absolute; top:-7px; right:-7px; width:20px; height:20px; border-radius:50%; border:none; background:#333; color:#fff; font-size:13px; line-height:1; cursor:pointer; }
+.followup-input{ display:flex; gap:7px; align-items:center; }
+.fu-text{ flex:1; border:1.5px solid #d9d2ea; border-radius:12px; padding:11px 12px; font-family:var(--font-body); font-size:.92rem; }
+.fu-text:focus{ outline:2px solid #b7a6e6; outline-offset:1px; }
+.fu-photo-btn{ border:1.5px solid #d9d2ea; background:#fff; border-radius:12px; padding:9px 11px; font-size:1.05rem; cursor:pointer; }
+.fu-send{ border:none; background:var(--accent); color:#142b25; font-weight:800; border-radius:12px; padding:11px 16px; font-family:var(--font-display); cursor:pointer; }
+.fu-send:disabled{ background:#e7e3d8; color:#a49f92; cursor:default; }
+.sticky-price-bar{  position:fixed; left:50%; transform:translateX(-50%); bottom:0;
   width:100%; max-width:520px; box-sizing:border-box;
   padding:12px 16px calc(12px + env(safe-area-inset-bottom, 0px));
   background:rgba(247,244,239,0.94); backdrop-filter:blur(8px);
@@ -407,6 +422,12 @@ export default function App() {
 
   const [phase, setPhase] = useState("capture"); // capture | loading | clarify | result | limit
   const [clarify, setClarify] = useState(null); // { jobId, klass, question, options, whyItMatters }
+  // Feature B: post-result follow-up conversation
+  const [followMsg, setFollowMsg] = useState("");
+  const [followPhoto, setFollowPhoto] = useState(null); // {data, mediaType}
+  const [followThread, setFollowThread] = useState([]); // [{role:'user'|'tool', text}]
+  const [followBusy, setFollowBusy] = useState(false);
+  const currentJobRef = useRef({ jobId: null, klass: null });
   const [loadingMsg, setLoadingMsg] = useState(COMMON_MSGS[0]);
   const [error, setError] = useState(null);
   const [result, setResult] = useState(null);
@@ -420,6 +441,7 @@ export default function App() {
 
   const captureIndexRef = useRef(0);
   const cameraInputRef = useRef(null);
+  const followPhotoInputRef = useRef(null);
   const fileInputRef = useRef(null);
   const msgTimer = useRef(null);
   const [dragSlot, setDragSlot] = useState(null); // slot index being dragged over (desktop)
@@ -529,6 +551,33 @@ export default function App() {
     reader.readAsDataURL(file);
   };
 
+  // Read + downsize a photo for the follow-up (stores {data, mediaType}).
+  const handleFollowPhoto = (fileList) => {
+    if (!fileList || !fileList.length) return;
+    const file = fileList[0];
+    const MAX_EDGE = 1024, QUALITY = 0.8;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const dataUrl = ev.target.result;
+      if (typeof dataUrl !== "string" || dataUrl.indexOf(",") === -1) return;
+      const img = new Image();
+      img.onload = () => {
+        let { width, height } = img;
+        if (width > MAX_EDGE || height > MAX_EDGE) {
+          if (width >= height) { height = Math.round((height * MAX_EDGE) / width); width = MAX_EDGE; }
+          else { width = Math.round((width * MAX_EDGE) / height); height = MAX_EDGE; }
+        }
+        const canvas = document.createElement("canvas");
+        canvas.width = width; canvas.height = height;
+        canvas.getContext("2d").drawImage(img, 0, 0, width, height);
+        const outUrl = canvas.toDataURL("image/jpeg", QUALITY);
+        setFollowPhoto({ data: outUrl.split(",")[1], mediaType: "image/jpeg", src: outUrl });
+      };
+      img.src = dataUrl;
+    };
+    reader.readAsDataURL(file);
+  };
+
   // Clear a photo so the user can retake before evaluating.
   const deletePhoto = (slotIndex, e) => {
     if (e) e.stopPropagation();
@@ -624,6 +673,10 @@ export default function App() {
           return;
         }
         if (pd.status === "done" && pd.result) {
+          currentJobRef.current = { jobId: id, klass: pd.timing?.lane || "collectible" };
+          setFollowThread([]);
+          setFollowMsg("");
+          setFollowPhoto(null);
           finish(pd);
           return;
         }
@@ -655,6 +708,63 @@ export default function App() {
     stopTrack();
     setError(msg);
     setPhase("capture");
+  };
+
+  // Feature B: send a post-result follow-up (question, correction, and/or new photo).
+  const sendFollowup = async () => {
+    const msg = followMsg.trim();
+    if (!msg && !followPhoto) return;
+    if (followBusy) return;
+    const job = currentJobRef.current;
+    if (!job.jobId) return;
+
+    setFollowThread((t) => [...t, { role: "user", text: msg || "(added a photo)" }]);
+    setFollowBusy(true);
+    setFollowMsg("");
+    const photoToSend = followPhoto;
+    setFollowPhoto(null);
+
+    try {
+      await fetch("/.netlify/functions/followup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          jobId: job.jobId,
+          message: msg,
+          newPhoto: photoToSend,
+          priorResult: result,
+          priorKlass: job.klass,
+        }),
+      });
+      // Poll the same job record for the follow-up outcome.
+      for (let i = 0; i < 90; i++) {
+        await sleep(1500);
+        let poll;
+        try { poll = await fetch(`/.netlify/functions/result?jobId=${encodeURIComponent(job.jobId)}`); }
+        catch { continue; }
+        if (!poll.ok) continue;
+        const pd = await poll.json();
+        if (pd.status === "followup_done" && pd.followup) {
+          const f = pd.followup;
+          setFollowThread((t) => [...t, { role: "tool", text: f.reply || (f.mode === "revalue" ? "Updated the valuation." : "") }]);
+          if (f.mode === "revalue" && f.result) {
+            setResult(f.result); // swap in the revalued result
+          }
+          setFollowBusy(false);
+          return;
+        }
+        if (pd.status === "error") {
+          setFollowThread((t) => [...t, { role: "tool", text: "Sorry — something went wrong. Try again." }]);
+          setFollowBusy(false);
+          return;
+        }
+      }
+      setFollowThread((t) => [...t, { role: "tool", text: "That took too long — try again." }]);
+      setFollowBusy(false);
+    } catch (e) {
+      setFollowThread((t) => [...t, { role: "tool", text: "Couldn't send that — check your connection." }]);
+      setFollowBusy(false);
+    }
   };
 
   const startValuation = async () => {
@@ -1016,6 +1126,44 @@ export default function App() {
               {timing && <div>time: {(timing.totalMs / 1000).toFixed(1)}s total &middot; triage {(timing.triageMs / 1000).toFixed(1)}s &middot; valuation {(timing.valuationMs / 1000).toFixed(1)}s &middot; lane {timing.lane}</div>}
             </div>
           )}
+
+          <div className="followup">
+            <div className="followup-title">Have a question or something to add?</div>
+            {followThread.length > 0 && (
+              <div className="followup-thread">
+                {followThread.map((m, i) => (
+                  <div key={i} className={"fu-msg " + (m.role === "user" ? "fu-user" : "fu-tool")}>
+                    {m.text}
+                  </div>
+                ))}
+                {followBusy && <div className="fu-msg fu-tool fu-typing">Thinking…</div>}
+              </div>
+            )}
+            {followPhoto && (
+              <div className="fu-photo-chip">
+                <img src={followPhoto.src} alt="added" />
+                <button onClick={() => setFollowPhoto(null)}>×</button>
+              </div>
+            )}
+            <div className="followup-input">
+              <input
+                type="text"
+                className="fu-text"
+                value={followMsg}
+                onChange={(e) => setFollowMsg(e.target.value)}
+                placeholder={"e.g. it's signed Engstrom '67 — or, why so low?"}
+                onKeyDown={(e) => { if (e.key === "Enter") sendFollowup(); }}
+                disabled={followBusy}
+              />
+              <button className="fu-photo-btn" onClick={() => followPhotoInputRef.current?.click()} disabled={followBusy} title="Add a photo">📷</button>
+              <button className="fu-send" onClick={sendFollowup} disabled={followBusy || (!followMsg.trim() && !followPhoto)}>Send</button>
+            </div>
+            <input
+              ref={followPhotoInputRef} type="file" accept="image/*"
+              style={{ display: "none" }}
+              onChange={(e) => handleFollowPhoto(e.target.files)}
+            />
+          </div>
 
           {needsFeedback ? (
             <FeedbackGate fb={fb} setFb={setFb} onSubmit={submitFeedback} />
