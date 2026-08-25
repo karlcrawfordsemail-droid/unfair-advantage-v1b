@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 
 // App version — bump on every deploy so the running site shows which build is live.
-const APP_VERSION = "v1B.26";
+const APP_VERSION = "v1B.28";
 
 /* ============================================================================
    UNFAIR ADVANTAGE — v1B
@@ -15,6 +15,9 @@ const APP_VERSION = "v1B.26";
 
 const MAX_PHOTOS = 5;
 const FREE_LIMIT = 1000; // DEV: raised from 5 for testing — set back to 5 before real testers
+// Testing: require quick feedback before the next valuation unlocks.
+// Set to false at launch — the follow-up stays, feedback becomes optional/gone.
+const REQUIRE_FEEDBACK = true;
 
 // Stable per-device id for the server-side usage cap. Generated once and kept
 // in localStorage; if cleared, a new id is minted (fresh device from the
@@ -218,9 +221,15 @@ body{
 }
 
 /* optional context card (violet-zoned, one bound unit) */
+.section-bar{
+  display:flex; align-items:baseline; justify-content:space-between; gap:10px;
+  background:var(--deep); color:#fff; border-radius:12px;
+  padding:11px 15px; margin:0 0 15px;
+}
+.section-bar-title{ font-family:var(--font-display); font-weight:800; font-size:1rem; letter-spacing:.06em; color:#fff; }
+.section-bar-note{ font-family:var(--font-body); font-weight:500; font-size:.75rem; color:#a7c4b7; white-space:nowrap; }
 .optional-panel{
-  margin-top:18px; border:1.5px solid #d9d2ea; background:#faf8ff;
-  border-radius:var(--radius-lg); padding:15px 15px 17px;
+  margin-top:20px; padding:0;
 }
 .optional-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:6px; }
 .optional-head h3{ margin:0; font-family:var(--font-display); font-size:1.05rem; color:#3d2f66; }
@@ -229,7 +238,7 @@ body{
   letter-spacing:.08em; color:#6b5aa0; background:#efeaff; border-radius:20px; padding:3px 9px;
 }
 .optional-copy{ margin:0 0 11px; font-size:.86rem; line-height:1.35; color:#4d5a55; font-weight:700; }
-.field-label{ display:block; font-family:var(--font-display); font-weight:800; font-size:.78rem; color:var(--deep); margin:0 0 5px; }
+.field-label{ display:block; font-family:var(--font-display); font-weight:800; font-size:.92rem; color:var(--deep); margin:0 0 6px; }
 textarea#notes{
   width:100%; min-height:78px; resize:vertical; border:1.5px solid #d9d2ea; border-radius:12px;
   padding:10px 11px; font-family:var(--font-body); font-size:.92rem; color:var(--ink);
@@ -400,13 +409,23 @@ textarea.fb-note{
 `;
 
 /* ---- wait-message tracks (kept lightweight; engine unchanged) ---------- */
-const COMMON_MSGS = ["Reading the photos\u2026", "Checking the current market\u2026", "Pricing it out\u2026"];
+const COMMON_MSGS = [
+  "Reading the photos\u2026",
+  "Identifying exactly what it is\u2026",
+  "Checking what these actually sell for\u2026",
+  "Sorting asking prices from real ones\u2026",
+  "Pricing it out honestly\u2026",
+];
 const COLLECTIBLE_MSGS = [
   "Reading the photos\u2026",
   "This looks collectible \u2014 taking a closer look\u2026",
-  "Searching sold comps\u2026",
-  "Cross-checking the market\u2026",
-  "Finalizing the estimate\u2026",
+  "Hunting for the maker's mark\u2026",
+  "Digging up sold comps\u2026",
+  "Cross-checking auction records\u2026",
+  "Throwing out the fantasy asking prices\u2026",
+  "Weighing condition, size, and rarity\u2026",
+  "Reasoning it through like an appraiser\u2026",
+  "Finalizing the honest estimate\u2026",
 ];
 
 export default function App() {
@@ -469,9 +488,11 @@ export default function App() {
     let i = 0;
     setLoadingMsg(msgs[0]);
     msgTimer.current = setInterval(() => {
-      i = Math.min(i + 1, msgs.length - 1);
+      // Advance through the list, then gently loop back so a long wait
+      // keeps cycling instead of freezing on the last line.
+      i = (i + 1) % msgs.length;
       setLoadingMsg(msgs[i]);
-    }, 3500);
+    }, 3000);
   };
   const stopTrack = () => clearInterval(msgTimer.current);
 
@@ -601,7 +622,7 @@ export default function App() {
   /* ---- the pipeline: upload -> start -> poll (mirrors v37 contract) ---- */
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-  const runPipeline = async ({ jobId, forceLane, clarification, priorKlass } = {}) => {
+  const runPipeline = async ({ jobId, forceLane, clarification, priorKlass, retry } = {}) => {
     const active = filledPhotos();
     const id = jobId || "job_" + Date.now() + "_" + Math.random().toString(36).slice(2, 10);
 
@@ -687,6 +708,12 @@ export default function App() {
           return;
         }
         if (pd.status === "error") {
+          // Auto-retry once on a transient failure (parse error, timeout,
+          // momentary overload) before showing the user anything.
+          if (!retry) {
+            runPipeline({ jobId, forceLane, clarification, priorKlass, retry: true });
+            return;
+          }
           fail((pd.error || "The valuation couldn't be completed.") + " Try again.");
           return;
         }
@@ -907,8 +934,10 @@ export default function App() {
             <span className="tagline-lead">AI-Powered · Real-Time Market Research</span>
             <span className="tagline-sub">Price range estimates from real sales data. Knowledge is power.</span>
           </div>
-          <h2>Photograph the item.</h2>
-          <p className="lead">Three quick views give the strongest price estimate. Add up to 5 photos.</p>
+          <div className="section-bar">
+            <span className="section-bar-title">PHOTOGRAPH THE ITEM</span>
+            <span className="section-bar-note">Add up to 5 photos</span>
+          </div>
 
           {error && <div className="error-box">{error}</div>}
 
@@ -967,14 +996,14 @@ export default function App() {
           )}
           <div className="scale-hint">
             {isDesktop
-              ? "Click a box to add a photo, or drag an image onto it. Add something for scale if the size isn't obvious."
-              : "Tap a box to add a photo (camera or gallery). Add something for scale if the size isn't obvious."}
+              ? "Drag an image onto a box, or click to add. Add something for scale if the size isn't obvious."
+              : "Add something for scale if the size isn't obvious."}
           </div>
 
           <section className="optional-panel">
-            <div className="optional-head">
-              <h3>Add what you know, skip the rest.</h3>
-              <span className="tag">Optional</span>
+            <div className="section-bar">
+              <span className="section-bar-title">ADD WHAT YOU KNOW</span>
+              <span className="section-bar-note">Optional &mdash; skip the rest</span>
             </div>
             <p className="intake-lead">
               More detail means sharper results.
@@ -1174,21 +1203,26 @@ export default function App() {
             </div>
           )}
 
-          {needsFeedback ? (
+          {needsFeedback && REQUIRE_FEEDBACK && (
             <FeedbackGate fb={fb} setFb={setFb} onSubmit={submitFeedback} />
-          ) : (
-            <div className="sticky-price-bar sticky-dual">
-              <button
-                className={"dual-btn dual-ask" + (followOpen ? " active" : "")}
-                onClick={() => setFollowOpen((v) => !v)}
-              >
-                {followOpen ? "Close" : "Ask or add info"}
-              </button>
-              <button className="dual-btn dual-next" onClick={nextItem}>
-                {count >= FREE_LIMIT ? "Done" : "Value another"}
-              </button>
-            </div>
           )}
+
+          <div className="sticky-price-bar sticky-dual">
+            <button
+              className={"dual-btn dual-ask" + (followOpen ? " active" : "")}
+              onClick={() => setFollowOpen((v) => !v)}
+            >
+              {followOpen ? "Close" : "Ask or add info"}
+            </button>
+            <button
+              className="dual-btn dual-next"
+              onClick={nextItem}
+              disabled={REQUIRE_FEEDBACK && needsFeedback}
+              title={REQUIRE_FEEDBACK && needsFeedback ? "Answer the quick feedback above first" : ""}
+            >
+              {count >= FREE_LIMIT ? "Done" : "Value another"}
+            </button>
+          </div>
         </div>
       )}
 
