@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 
 // App version — bump on every deploy so the running site shows which build is live.
-const APP_VERSION = "v1B.25";
+const APP_VERSION = "v1B.26";
 
 /* ============================================================================
    UNFAIR ADVANTAGE — v1B
@@ -92,6 +92,11 @@ body{
 .fu-photo-btn{ border:1.5px solid #d9d2ea; background:#fff; border-radius:12px; padding:9px 11px; font-size:1.05rem; cursor:pointer; }
 .fu-send{ border:none; background:var(--accent); color:#142b25; font-weight:800; border-radius:12px; padding:11px 16px; font-family:var(--font-display); cursor:pointer; }
 .fu-send:disabled{ background:#e7e3d8; color:#a49f92; cursor:default; }
+.sticky-dual{ display:flex; gap:10px; }
+.dual-btn{ flex:1; border-radius:12px; padding:14px 10px; font-family:var(--font-display); font-weight:800; font-size:.98rem; cursor:pointer; border:none; }
+.dual-ask{ background:#fff; color:var(--deep); border:1.5px solid var(--deep); }
+.dual-ask.active{ background:var(--deep); color:#fff; }
+.dual-next{ background:var(--accent); color:#142b25; }
 .sticky-price-bar{  position:fixed; left:50%; transform:translateX(-50%); bottom:0;
   width:100%; max-width:520px; box-sizing:border-box;
   padding:12px 16px calc(12px + env(safe-area-inset-bottom, 0px));
@@ -427,6 +432,7 @@ export default function App() {
   const [followPhoto, setFollowPhoto] = useState(null); // {data, mediaType}
   const [followThread, setFollowThread] = useState([]); // [{role:'user'|'tool', text}]
   const [followBusy, setFollowBusy] = useState(false);
+  const [followOpen, setFollowOpen] = useState(false);
   const currentJobRef = useRef({ jobId: null, klass: null });
   const [loadingMsg, setLoadingMsg] = useState(COMMON_MSGS[0]);
   const [error, setError] = useState(null);
@@ -1127,50 +1133,59 @@ export default function App() {
             </div>
           )}
 
-          <div className="followup">
-            <div className="followup-title">Have a question or something to add?</div>
-            {followThread.length > 0 && (
-              <div className="followup-thread">
-                {followThread.map((m, i) => (
-                  <div key={i} className={"fu-msg " + (m.role === "user" ? "fu-user" : "fu-tool")}>
-                    {m.text}
-                  </div>
-                ))}
-                {followBusy && <div className="fu-msg fu-tool fu-typing">Thinking…</div>}
+          {followOpen && (
+            <div className="followup">
+              <div className="followup-title">Ask a question or add info</div>
+              {followThread.length > 0 && (
+                <div className="followup-thread">
+                  {followThread.map((m, i) => (
+                    <div key={i} className={"fu-msg " + (m.role === "user" ? "fu-user" : "fu-tool")}>
+                      {m.text}
+                    </div>
+                  ))}
+                  {followBusy && <div className="fu-msg fu-tool fu-typing">Thinking…</div>}
+                </div>
+              )}
+              {followPhoto && (
+                <div className="fu-photo-chip">
+                  <img src={followPhoto.src} alt="added" />
+                  <button onClick={() => setFollowPhoto(null)}>×</button>
+                </div>
+              )}
+              <div className="followup-input">
+                <input
+                  type="text"
+                  className="fu-text"
+                  value={followMsg}
+                  onChange={(e) => setFollowMsg(e.target.value)}
+                  placeholder={"e.g. it's signed Engstrom '67 — or, why so low?"}
+                  onKeyDown={(e) => { if (e.key === "Enter") sendFollowup(); }}
+                  disabled={followBusy}
+                  autoFocus
+                />
+                <button className="fu-photo-btn" onClick={() => followPhotoInputRef.current?.click()} disabled={followBusy} title="Add a photo">📷</button>
+                <button className="fu-send" onClick={sendFollowup} disabled={followBusy || (!followMsg.trim() && !followPhoto)}>Send</button>
               </div>
-            )}
-            {followPhoto && (
-              <div className="fu-photo-chip">
-                <img src={followPhoto.src} alt="added" />
-                <button onClick={() => setFollowPhoto(null)}>×</button>
-              </div>
-            )}
-            <div className="followup-input">
               <input
-                type="text"
-                className="fu-text"
-                value={followMsg}
-                onChange={(e) => setFollowMsg(e.target.value)}
-                placeholder={"e.g. it's signed Engstrom '67 — or, why so low?"}
-                onKeyDown={(e) => { if (e.key === "Enter") sendFollowup(); }}
-                disabled={followBusy}
+                ref={followPhotoInputRef} type="file" accept="image/*"
+                style={{ display: "none" }}
+                onChange={(e) => handleFollowPhoto(e.target.files)}
               />
-              <button className="fu-photo-btn" onClick={() => followPhotoInputRef.current?.click()} disabled={followBusy} title="Add a photo">📷</button>
-              <button className="fu-send" onClick={sendFollowup} disabled={followBusy || (!followMsg.trim() && !followPhoto)}>Send</button>
             </div>
-            <input
-              ref={followPhotoInputRef} type="file" accept="image/*"
-              style={{ display: "none" }}
-              onChange={(e) => handleFollowPhoto(e.target.files)}
-            />
-          </div>
+          )}
 
           {needsFeedback ? (
             <FeedbackGate fb={fb} setFb={setFb} onSubmit={submitFeedback} />
           ) : (
-            <div className="sticky-price-bar">
-              <button className="primary-button" style={{ margin: 0 }} onClick={nextItem}>
-                {count >= FREE_LIMIT ? "That's all your free valuations" : "Value another item"}
+            <div className="sticky-price-bar sticky-dual">
+              <button
+                className={"dual-btn dual-ask" + (followOpen ? " active" : "")}
+                onClick={() => setFollowOpen((v) => !v)}
+              >
+                {followOpen ? "Close" : "Ask or add info"}
+              </button>
+              <button className="dual-btn dual-next" onClick={nextItem}>
+                {count >= FREE_LIMIT ? "Done" : "Value another"}
               </button>
             </div>
           )}
