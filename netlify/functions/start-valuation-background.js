@@ -78,6 +78,9 @@ BEFORE the valuation shape below, check the CLARIFICATION GATE: if you cannot re
 { "needsInput": true, "question": "<one plain question naming the specific ambiguity>", "options": ["<2-4 concrete answers the user can tap>", "Not sure — I'll reshoot", "Just price your best guess"], "whyItMatters": "<one sentence: how much the answer moves the price>" }
 HARD RULE: if the user answered YES to a maker's mark/signature/label AND you cannot confidently read that mark from the photos, you MUST return the needsInput shape — ask them to type what it says or add a close-up. Do NOT silently price it as unmarked. Always include "Just price your best guess" as the last option. Ask at most ONE question. (This gate is skipped once the user has already answered a clarification — then you MUST return the full valuation below.)
 
+NO SELLABLE ITEM: If the photos do not contain an identifiable, sellable physical object to value (e.g. a meme, screenshot, selfie, blank/blurry image, text, or a scene with nothing valuable in it), do NOT invent a valuation. Output THIS shape and nothing else:
+{ "noItem": true, "message": "<one friendly sentence telling the user you couldn't find an item to value and what to try, e.g. 'I couldn't find a sellable item in this photo — try a clear, well-lit shot of the object itself.'>" }
+
 Otherwise, output the valuation, exactly this shape:
 {
   "id": "what it is, likely maker, era, material",
@@ -334,6 +337,19 @@ export default async (req) => {
 
     let parsed = tryParse(lastText);
     if (!looksValid(parsed)) parsed = tryParse(allText);
+
+    // --- NO SELLABLE ITEM: model couldn't find anything to value ---
+    const noItem = (parsed && parsed.noItem) ? parsed : (tryParse(lastText)?.noItem ? tryParse(lastText) : null);
+    if (noItem && noItem.noItem) {
+      await store.setJSON(jobId, {
+        status: "no_item",
+        message: noItem.message
+          ? String(noItem.message)
+          : "I couldn't find a sellable item in this photo — try a clear, well-lit shot of the object itself.",
+      });
+      console.log(`[NO-ITEM] job=${jobId}`);
+      return new Response("no item");
+    }
 
     // --- CLARIFY GATE: the model may return a question instead of a price ---
     // (only on the FIRST pass; on a clarification round we forbid re-asking).

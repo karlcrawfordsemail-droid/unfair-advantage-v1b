@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 
 // App version — bump on every deploy so the running site shows which build is live.
-const APP_VERSION = "v1B.28";
+const APP_VERSION = "v1B.29";
 
 /* ============================================================================
    UNFAIR ADVANTAGE — v1B
@@ -41,10 +41,10 @@ const SLOTS = [
   { label: "Underside", instruction: "Maker's mark, signature, or label" },
   { label: "More views", instruction: "Especially any damage or chips" },
 ];
-// Up to 2 extra generic slots the user can reveal when 3 aren't enough (5 total).
+// 2 extra slots (4 and 5), always visible in the horizontal scroll row.
 const EXTRA_SLOTS = [
-  { label: "Another view", instruction: "Any extra angle" },
-  { label: "Another view", instruction: "Any extra angle" },
+  { label: "Add another photo", instruction: "Any extra angle" },
+  { label: "Add another photo", instruction: "Any extra angle" },
 ];
 
 /* ---- design tokens (from the approved ChatGPT skin) --------------------- */
@@ -116,7 +116,10 @@ body{
 .lead{ margin:0 0 17px; font-size:.98rem; line-height:1.4; color:var(--muted); font-weight:700; }
 
 /* capture slots */
-.photo-row{ display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; margin-bottom:12px; }
+.photo-row{ display:flex; gap:8px; margin-bottom:12px; overflow-x:auto; scroll-snap-type:x mandatory; -webkit-overflow-scrolling:touch; padding-bottom:4px; }
+.photo-row::-webkit-scrollbar{ height:5px; }
+.photo-row::-webkit-scrollbar-thumb{ background:#d9d2ea; border-radius:3px; }
+.photo-row > .photo-card{ flex:0 0 31%; scroll-snap-align:start; }
 .photo-delete{
   position:absolute; top:5px; right:5px; z-index:3;
   width:26px; height:26px; border-radius:50%;
@@ -227,7 +230,7 @@ body{
   padding:11px 15px; margin:0 0 15px;
 }
 .section-bar-title{ font-family:var(--font-display); font-weight:800; font-size:1rem; letter-spacing:.06em; color:#fff; }
-.section-bar-note{ font-family:var(--font-body); font-weight:500; font-size:.75rem; color:#a7c4b7; white-space:nowrap; }
+.section-bar-note{ font-family:var(--font-body); font-weight:600; font-size:.92rem; color:#fff; white-space:nowrap; }
 .optional-panel{
   margin-top:20px; padding:0;
 }
@@ -469,6 +472,7 @@ export default function App() {
   const followPhotoInputRef = useRef(null);
   const fileInputRef = useRef(null);
   const msgTimer = useRef(null);
+  const trackKlassRef = useRef(null);
   const [dragSlot, setDragSlot] = useState(null); // slot index being dragged over (desktop)
   // Desktop = has a fine pointer + hover (mouse). Phones/tablets fail this, so DnD stays off there.
   const isDesktop = typeof window !== "undefined" &&
@@ -484,6 +488,7 @@ export default function App() {
   /* ---- wait-message cycling ---- */
   const startTrack = (klass) => {
     clearInterval(msgTimer.current);
+    trackKlassRef.current = klass;
     const msgs = klass === "collectible" ? COLLECTIBLE_MSGS : COMMON_MSGS;
     let i = 0;
     setLoadingMsg(msgs[0]);
@@ -494,7 +499,7 @@ export default function App() {
       setLoadingMsg(msgs[i]);
     }, 3000);
   };
-  const stopTrack = () => clearInterval(msgTimer.current);
+  const stopTrack = () => { clearInterval(msgTimer.current); trackKlassRef.current = null; };
 
   /* ---- photo capture (reuses v37 client-side compression) ---- */
   const openPicker = (slotIndex, useCamera) => {
@@ -686,7 +691,7 @@ export default function App() {
         if (!poll.ok) continue;
         const pd = await poll.json();
 
-        if (pd.klass) startTrack(pd.klass);
+        if (pd.klass && pd.klass !== trackKlassRef.current) startTrack(pd.klass);
         if (pd.status === "needs_input" && pd.question) {
           stopTrack();
           setClarify({
@@ -705,6 +710,14 @@ export default function App() {
           setFollowMsg("");
           setFollowPhoto(null);
           finish(pd);
+          return;
+        }
+        if (pd.status === "no_item") {
+          // Not an error — the model correctly found nothing to value.
+          // Return to capture with photos intact and a calm message.
+          stopTrack();
+          setError(pd.message || "I couldn't find a sellable item in this photo — try a clear, well-lit shot of the object itself.");
+          setPhase("capture");
           return;
         }
         if (pd.status === "error") {
@@ -942,7 +955,7 @@ export default function App() {
           {error && <div className="error-box">{error}</div>}
 
           <section className="photo-row">
-            {SLOTS.concat(EXTRA_SLOTS.slice(0, extraVisible)).map((slot, i) => {
+            {SLOTS.concat(EXTRA_SLOTS).map((slot, i) => {
               const filled = !!photos[i];
               return (
                 <div
@@ -985,21 +998,6 @@ export default function App() {
               );
             })}
           </section>
-          {extraVisible < EXTRA_SLOTS.length && (
-            <button
-              type="button"
-              className="add-photo-btn"
-              onClick={() => setExtraVisible((n) => Math.min(n + 1, EXTRA_SLOTS.length))}
-            >
-              + Add another photo
-            </button>
-          )}
-          <div className="scale-hint">
-            {isDesktop
-              ? "Drag an image onto a box, or click to add. Add something for scale if the size isn't obvious."
-              : "Add something for scale if the size isn't obvious."}
-          </div>
-
           <section className="optional-panel">
             <div className="section-bar">
               <span className="section-bar-title">ADD WHAT YOU KNOW</span>
