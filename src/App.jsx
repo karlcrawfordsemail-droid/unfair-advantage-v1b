@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 
 // App version — bump on every deploy so the running site shows which build is live.
-const APP_VERSION = "v1B.29";
+const APP_VERSION = "v1B.31";
 
 /* ============================================================================
    UNFAIR ADVANTAGE — v1B
@@ -100,6 +100,19 @@ body{
 .dual-ask{ background:#fff; color:var(--deep); border:1.5px solid var(--deep); }
 .dual-ask.active{ background:var(--deep); color:#fff; }
 .dual-next{ background:var(--accent); color:#142b25; }
+.dual-btn:disabled{ opacity:.45; cursor:not-allowed; }
+@keyframes flashPulse {
+  0%,100% { box-shadow:0 0 0 0 rgba(214,158,46,0); }
+  30% { box-shadow:0 0 0 4px rgba(214,158,46,.55); }
+}
+@keyframes nudge {
+  0%,100% { transform:translateX(0); }
+  20% { transform:translateX(-6px); }
+  40% { transform:translateX(6px); }
+  60% { transform:translateX(-4px); }
+  80% { transform:translateX(4px); }
+}
+.flash-attention { animation:flashPulse .9s ease, nudge .5s ease; border-radius:14px; }
 .sticky-price-bar{  position:fixed; left:50%; transform:translateX(-50%); bottom:0;
   width:100%; max-width:520px; box-sizing:border-box;
   padding:12px 16px calc(12px + env(safe-area-inset-bottom, 0px));
@@ -119,7 +132,7 @@ body{
 .photo-row{ display:flex; gap:8px; margin-bottom:12px; overflow-x:auto; scroll-snap-type:x mandatory; -webkit-overflow-scrolling:touch; padding-bottom:4px; }
 .photo-row::-webkit-scrollbar{ height:5px; }
 .photo-row::-webkit-scrollbar-thumb{ background:#d9d2ea; border-radius:3px; }
-.photo-row > .photo-card{ flex:0 0 31%; scroll-snap-align:start; }
+.photo-row > .photo-card{ flex:0 0 29%; scroll-snap-align:start; }
 .photo-delete{
   position:absolute; top:5px; right:5px; z-index:3;
   width:26px; height:26px; border-radius:50%;
@@ -423,12 +436,18 @@ const COLLECTIBLE_MSGS = [
   "Reading the photos\u2026",
   "This looks collectible \u2014 taking a closer look\u2026",
   "Hunting for the maker's mark\u2026",
+  "Identifying the pattern and era\u2026",
   "Digging up sold comps\u2026",
   "Cross-checking auction records\u2026",
+  "Separating real sales from wishful asks\u2026",
   "Throwing out the fantasy asking prices\u2026",
+  "Checking how rare this actually is\u2026",
   "Weighing condition, size, and rarity\u2026",
+  "Reading the market for this maker\u2026",
   "Reasoning it through like an appraiser\u2026",
-  "Finalizing the honest estimate\u2026",
+  "Sanity-checking against realized prices\u2026",
+  "Pinning down the honest range\u2026",
+  "Almost there \u2014 finalizing the estimate\u2026",
 ];
 
 export default function App() {
@@ -455,6 +474,7 @@ export default function App() {
   const [followThread, setFollowThread] = useState([]); // [{role:'user'|'tool', text}]
   const [followBusy, setFollowBusy] = useState(false);
   const [followOpen, setFollowOpen] = useState(false);
+  const [flashFeedback, setFlashFeedback] = useState(false);
   const currentJobRef = useRef({ jobId: null, klass: null });
   const [loadingMsg, setLoadingMsg] = useState(COMMON_MSGS[0]);
   const [error, setError] = useState(null);
@@ -1202,7 +1222,9 @@ export default function App() {
           )}
 
           {needsFeedback && REQUIRE_FEEDBACK && (
-            <FeedbackGate fb={fb} setFb={setFb} onSubmit={submitFeedback} />
+            <div className={flashFeedback ? "flash-attention" : ""}>
+              <FeedbackGate fb={fb} setFb={setFb} onSubmit={submitFeedback} />
+            </div>
           )}
 
           <div className="sticky-price-bar sticky-dual">
@@ -1214,11 +1236,19 @@ export default function App() {
             </button>
             <button
               className="dual-btn dual-next"
-              onClick={nextItem}
-              disabled={REQUIRE_FEEDBACK && needsFeedback}
-              title={REQUIRE_FEEDBACK && needsFeedback ? "Answer the quick feedback above first" : ""}
+              onClick={() => {
+                if (REQUIRE_FEEDBACK && needsFeedback) {
+                  // Locked on feedback — flash the survey card to show them where.
+                  setFlashFeedback(true);
+                  setTimeout(() => setFlashFeedback(false), 900);
+                  return;
+                }
+                nextItem();
+              }}
             >
-              {count >= FREE_LIMIT ? "Done" : "Value another"}
+              {count >= FREE_LIMIT
+                ? "Done"
+                : (REQUIRE_FEEDBACK && needsFeedback ? "Answer above to continue" : "New item")}
             </button>
           </div>
         </div>
