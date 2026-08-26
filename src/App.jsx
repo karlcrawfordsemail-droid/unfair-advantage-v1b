@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 
 // App version — bump on every deploy so the running site shows which build is live.
-const APP_VERSION = "v1B.32";
+const APP_VERSION = "v1B.33";
 
 /* ============================================================================
    UNFAIR ADVANTAGE — v1B
@@ -66,19 +66,18 @@ body{
 }
 .ua-app{ max-width:520px; margin:0 auto; min-height:100%; display:flex; flex-direction:column; }
 .appbar{
-  background:#ffffff; color:var(--deep); padding:16px 18px 13px;
+  background:var(--deep); color:#fff; padding:15px 18px 14px;
   font-family:var(--font-display); border-bottom:4px solid var(--accent);
   position:sticky; top:0; z-index:10;
 }
-.brand{ display:flex; align-items:center; justify-content:center; gap:12px; margin-bottom:4px; }
+.brand{ display:flex; align-items:center; justify-content:center; gap:12px; }
 .brand-mark{
-  width:42px; height:42px; border-radius:12px; display:inline-grid; place-items:center;
-  background:var(--accent); color:#142b25; font-size:1.25rem; font-weight:900;
-  box-shadow:inset 0 0 0 2px rgba(255,255,255,.38), 0 3px 10px rgba(20,43,37,.22);
-  font-family:var(--font-display); letter-spacing:-.01em;
+  width:44px; height:44px; display:inline-grid; place-items:center;
+  filter:drop-shadow(0 3px 8px rgba(0,0,0,.28));
 }
-.brand-name{ font-size:1.95rem; font-weight:900; letter-spacing:-.03em; color:var(--deep); line-height:1; }
-.brand-version{ font-size:.62rem; font-weight:600; opacity:.45; letter-spacing:0; margin-left:5px; vertical-align:super; }
+.brand-mark svg{ display:block; }
+.brand-name{ font-size:1.95rem; font-weight:900; letter-spacing:-.03em; color:#f7f3e8; line-height:1; }
+.brand-version{ font-size:.62rem; font-weight:600; opacity:.55; letter-spacing:0; margin-left:5px; vertical-align:super; color:#f7f3e8; }
 .screen{ padding:20px 16px 28px; flex:1; }
 .followup{ margin-top:22px; border-top:1px solid #e4dcc9; padding-top:18px; }
 .followup-title{ font-family:var(--font-display); font-weight:800; font-size:1rem; color:var(--deep); margin-bottom:10px; }
@@ -923,8 +922,25 @@ export default function App() {
   const Header = (
     <header className="appbar">
       <div className="brand">
-        <div className="brand-mark">UA</div>
-        <div className="brand-name">Unfair Advantage <span className="brand-version">{APP_VERSION}</span></div>
+        <div className="brand-mark" aria-label="Unfair Advantage logo">
+          <svg viewBox="0 0 44 44" width="44" height="44" role="img" aria-hidden="true">
+            <defs>
+              <linearGradient id="uaGold" x1="0" y1="0" x2="44" y2="44" gradientUnits="userSpaceOnUse">
+                <stop offset="0" stopColor="#f2b64b" />
+                <stop offset="1" stopColor="#d98a1f" />
+              </linearGradient>
+            </defs>
+            <rect x="1.5" y="1.5" width="41" height="41" rx="11" fill="url(#uaGold)" />
+            <rect x="1.5" y="1.5" width="41" height="41" rx="11" fill="none" stroke="#ffffff" strokeOpacity="0.30" strokeWidth="1.5" />
+            {/* U cradle with the A rising from inside it — reads "UA" */}
+            <path d="M11 11 V23 a11 11 0 0 0 22 0 V11" fill="none" stroke="#173d34" strokeWidth="3.6" strokeLinecap="round" />
+            <path d="M22 9 L29 27 H25.6 L22 17 L18.4 27 H15 Z" fill="#173d34" />
+            <rect x="18.4" y="22.5" width="7.2" height="2.8" fill="#173d34" />
+          </svg>
+        </div>
+        <div className="brand-text">
+          <div className="brand-name">Unfair Advantage <span className="brand-version">{APP_VERSION}</span></div>
+        </div>
       </div>
     </header>
   );
@@ -1252,7 +1268,7 @@ export default function App() {
             >
               {count >= FREE_LIMIT
                 ? "Done"
-                : (REQUIRE_FEEDBACK && needsFeedback ? "Answer above to continue" : "New item")}
+                : (REQUIRE_FEEDBACK && needsFeedback ? "Answer Survey to Continue" : "New item")}
             </button>
           </div>
         </div>
