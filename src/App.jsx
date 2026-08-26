@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 
 // App version — bump on every deploy so the running site shows which build is live.
-const APP_VERSION = "v1B.31";
+const APP_VERSION = "v1B.32";
 
 /* ============================================================================
    UNFAIR ADVANTAGE — v1B
@@ -70,14 +70,15 @@ body{
   font-family:var(--font-display); border-bottom:4px solid var(--accent);
   position:sticky; top:0; z-index:10;
 }
-.brand{ display:flex; align-items:center; justify-content:center; gap:10px; }
+.brand{ display:flex; align-items:center; justify-content:center; gap:12px; margin-bottom:4px; }
 .brand-mark{
-  width:30px; height:30px; border-radius:9px; display:inline-grid; place-items:center;
-  background:var(--accent); color:#142b25; font-size:.92rem; font-weight:900;
-  box-shadow:inset 0 0 0 2px rgba(255,255,255,.32); font-family:var(--font-display);
+  width:42px; height:42px; border-radius:12px; display:inline-grid; place-items:center;
+  background:var(--accent); color:#142b25; font-size:1.25rem; font-weight:900;
+  box-shadow:inset 0 0 0 2px rgba(255,255,255,.38), 0 3px 10px rgba(20,43,37,.22);
+  font-family:var(--font-display); letter-spacing:-.01em;
 }
-.brand-name{ font-size:1.5rem; font-weight:900; letter-spacing:-.02em; color:var(--deep); }
-.brand-version{ font-size:.7rem; font-weight:600; opacity:.5; letter-spacing:0; margin-left:3px; }
+.brand-name{ font-size:1.95rem; font-weight:900; letter-spacing:-.03em; color:var(--deep); line-height:1; }
+.brand-version{ font-size:.62rem; font-weight:600; opacity:.45; letter-spacing:0; margin-left:5px; vertical-align:super; }
 .screen{ padding:20px 16px 28px; flex:1; }
 .followup{ margin-top:22px; border-top:1px solid #e4dcc9; padding-top:18px; }
 .followup-title{ font-family:var(--font-display); font-weight:800; font-size:1rem; color:var(--deep); margin-bottom:10px; }
@@ -120,7 +121,7 @@ body{
   border-top:1px solid #e4dcc9; z-index:50;
 }
 .tagline{ text-align:center; margin:0 0 16px; display:flex; flex-direction:column; gap:2px; }
-.tagline-lead{ font-family:var(--font-display); font-weight:800; font-size:.9rem; color:var(--deep); letter-spacing:.01em; }
+.tagline-lead{ font-family:var(--font-display); font-weight:900; font-size:1rem; color:var(--deep); letter-spacing:.01em; white-space:nowrap; }
 .tagline-sub{ font-size:.8rem; color:var(--muted); line-height:1.35; }
 .screen h2{
   font-family:var(--font-display); font-size:1.6rem; line-height:1.08;
@@ -244,6 +245,8 @@ body{
 }
 .section-bar-title{ font-family:var(--font-display); font-weight:800; font-size:1rem; letter-spacing:.06em; color:#fff; }
 .section-bar-note{ font-family:var(--font-body); font-weight:600; font-size:.92rem; color:#fff; white-space:nowrap; }
+.section-bar-stack{ flex-direction:column; align-items:flex-start; gap:3px; }
+.section-bar-stack .section-bar-note{ white-space:normal; font-weight:600; font-size:.86rem; color:#e8f0eb; }
 .optional-panel{
   margin-top:20px; padding:0;
 }
@@ -255,6 +258,7 @@ body{
 }
 .optional-copy{ margin:0 0 11px; font-size:.86rem; line-height:1.35; color:#4d5a55; font-weight:700; }
 .field-label{ display:block; font-family:var(--font-display); font-weight:800; font-size:.92rem; color:var(--deep); margin:0 0 6px; }
+.label-hint{ font-family:var(--font-body); font-weight:500; font-size:.78rem; color:var(--muted); letter-spacing:0; }
 textarea#notes{
   width:100%; min-height:78px; resize:vertical; border:1.5px solid #d9d2ea; border-radius:12px;
   padding:10px 11px; font-family:var(--font-body); font-size:.92rem; color:var(--ink);
@@ -475,6 +479,7 @@ export default function App() {
   const [followBusy, setFollowBusy] = useState(false);
   const [followOpen, setFollowOpen] = useState(false);
   const [flashFeedback, setFlashFeedback] = useState(false);
+  const feedbackRef = useRef(null);
   const currentJobRef = useRef({ jobId: null, klass: null });
   const [loadingMsg, setLoadingMsg] = useState(COMMON_MSGS[0]);
   const [error, setError] = useState(null);
@@ -1019,13 +1024,10 @@ export default function App() {
             })}
           </section>
           <section className="optional-panel">
-            <div className="section-bar">
+            <div className="section-bar section-bar-stack">
               <span className="section-bar-title">ADD WHAT YOU KNOW</span>
-              <span className="section-bar-note">Optional &mdash; skip the rest</span>
+              <span className="section-bar-note">Optional &mdash; More detail means sharper results.</span>
             </div>
-            <p className="intake-lead">
-              More detail means sharper results.
-            </p>
 
             <div className="intake-field">
               <label className="field-label">What is it?</label>
@@ -1047,8 +1049,7 @@ export default function App() {
             </div>
 
             <div className="intake-field">
-              <label className="field-label">Approximate size</label>
-              <p className="intake-hint">Even a rough answer helps.</p>
+              <label className="field-label">Approximate size <span className="label-hint">Even a rough answer helps.</span></label>
               <input
                 className="intake-text" type="text" value={sizeText}
                 onChange={(e) => setSizeText(e.target.value)}
@@ -1106,12 +1107,11 @@ export default function App() {
               placeholder={"e.g. set of 6, has a chip inside, came with original box"}
             />
             <div className="zip-row">
-              <label className="field-label" htmlFor="zip">ZIP code</label>
+              <label className="field-label" htmlFor="zip">ZIP code <span className="label-hint">Optional &mdash; helps price local items.</span></label>
               <input
                 id="zip" type="text" inputMode="numeric" value={zip}
                 onChange={(e) => setZip(e.target.value)} placeholder="e.g. 12345"
               />
-              <div className="helper">Optional &mdash; helps price local items.</div>
             </div>
           </section>
 
@@ -1222,7 +1222,7 @@ export default function App() {
           )}
 
           {needsFeedback && REQUIRE_FEEDBACK && (
-            <div className={flashFeedback ? "flash-attention" : ""}>
+            <div ref={feedbackRef} className={flashFeedback ? "flash-attention" : ""}>
               <FeedbackGate fb={fb} setFb={setFb} onSubmit={submitFeedback} />
             </div>
           )}
@@ -1238,9 +1238,13 @@ export default function App() {
               className="dual-btn dual-next"
               onClick={() => {
                 if (REQUIRE_FEEDBACK && needsFeedback) {
-                  // Locked on feedback — flash the survey card to show them where.
-                  setFlashFeedback(true);
-                  setTimeout(() => setFlashFeedback(false), 900);
+                  // Locked on feedback — scroll it into view, THEN flash it,
+                  // since the survey is often below the fold on the result screen.
+                  feedbackRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+                  setTimeout(() => {
+                    setFlashFeedback(true);
+                    setTimeout(() => setFlashFeedback(false), 900);
+                  }, 350);
                   return;
                 }
                 nextItem();
