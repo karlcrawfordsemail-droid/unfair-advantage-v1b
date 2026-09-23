@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 
 // App version — bump on every deploy so the running site shows which build is live.
-const APP_VERSION = "v1B.33";
+const APP_VERSION = "v1B.34";
 
 /* ============================================================================
    UNFAIR ADVANTAGE — v1B
@@ -705,10 +705,11 @@ export default function App() {
       });
       if (start.status !== 202 && !start.ok) { fail("Couldn't start the valuation. Try again."); return; }
 
-      // Poll
-      const maxTries = 90;
+      // Poll — wait window must exceed slowest backend run (~260s observed).
+      // 150 tries x 2000ms = 300s (5 min) before giving up.
+      const maxTries = 150;
       for (let i = 0; i < maxTries; i++) {
-        await sleep(1500);
+        await sleep(2000);
         let poll;
         try { poll = await fetch(`/.netlify/functions/result?jobId=${encodeURIComponent(id)}`); }
         catch { continue; }
@@ -807,8 +808,9 @@ export default function App() {
         }),
       });
       // Poll the same job record for the follow-up outcome.
-      for (let i = 0; i < 90; i++) {
-        await sleep(1500);
+      // 150 x 2000ms = 300s, matches the main poll window.
+      for (let i = 0; i < 150; i++) {
+        await sleep(2000);
         let poll;
         try { poll = await fetch(`/.netlify/functions/result?jobId=${encodeURIComponent(job.jobId)}`); }
         catch { continue; }
