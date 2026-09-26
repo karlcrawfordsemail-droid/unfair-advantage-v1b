@@ -15,6 +15,9 @@ export default async (req) => {
       at: new Date().toISOString(),
       reliable: body.reliable ?? null,   // "Yes" | "Not sure" | "No"
       change: (body.change || "").slice(0, 2000),
+      rot_q: (body.rot_q || "").slice(0, 200),      // which rotating question was asked
+      rot_a: (body.rot_a || "").slice(0, 100),      // the tester's chip answer
+      valuation_num: Number.isFinite(body.valuation_num) ? body.valuation_num : null,
       item: (body.item || "").slice(0, 300),   // optional: what it was valued at / desc
       version: body.version || "",
     };

@@ -176,6 +176,8 @@ export default async (req) => {
     // to job status immediately so the browser shows the right wait messages,
     // AND we use it to route the valuation down the fast lane or the deep lane.
     let klass = "common";
+    const TRIAGE_MODEL = "claude-haiku-4-5-20251001";
+    let triageUsage = null; // tokens used by the triage call (null if skipped)
     const triageStart = Date.now();
     // On a clarification round, we already classified on the first pass —
     // reuse that lane and skip the (paid) triage call entirely.
@@ -191,7 +193,7 @@ export default async (req) => {
           "anthropic-version": "2023-06-01",
         },
         body: JSON.stringify({
-          model: "claude-haiku-4-5-20251001",
+          model: TRIAGE_MODEL,
           max_tokens: 16,
           system:
             "You are a world-class antiques and resale appraiser doing fast triage — better than almost any human at recognizing valuable items on sight. Using your deep knowledge, decide whether this item is COMMON or COLLECTIBLE.\n\nYou may be given SEVERAL photos of the same item (e.g. an overall shot and a photo of the underside/base). LOOK AT EVERY PHOTO. The mark is usually on the BASE or underside, so study any underside photo carefully before deciding.\n\nHIGHEST-PRIORITY RULE — CHECK FOR A MAKER'S MARK FIRST: If any photo shows a maker's mark, artist signature, pottery stamp, hand-incised/impressed maker name, or a hallmark of an identifiable maker (e.g. an impressed 'HAND MADE BY W.J. GORDY', a signed art-pottery base, a silver hallmark, a stamped studio mark), answer COLLECTIBLE. A genuine maker's mark is the single strongest signal of collectible value and OVERRIDES a plain or utilitarian appearance. Do NOT be fooled by a humble brown/stoneware look — signed studio and folk pottery often looks plain. HOWEVER, ordinary mass-market manufacturing stamps are NOT maker's marks: generic 'Made in China', a dishwasher-safe symbol, a big-box store brand, a mold number alone, or a mass-produced housewares logo do NOT make an item collectible. The mark must point to an identifiable artist, studio, pottery, or collectible maker.\n\nYour greatest value is RECOGNIZING KNOWN COLLECTIBLE TYPES BY THEIR VISUAL SIGNATURES — EVEN WITHOUT A MARK. Many valuable items are unmarked but identifiable by their characteristics: Fenton and other art glass (opalescence, hobnail, ruffled forms, specific colors), carnival glass (iridescent finish), art pottery (Roseville, Weller, McCoy, Rookwood forms/glazes), mid-century modern design, Blenko glass, Depression glass, vintage costume jewelry, quality vintage tools, folk art, etc. If the item's shape, color, glaze, material, or style matches a genuine collectible type you recognize, answer COLLECTIBLE even if there is no visible mark. This on-sight recognition is exactly what makes you valuable — use it fully.\n\nBUT do NOT flag something as collectible merely because it looks FANCY, ornate, or decorative. A generic modern store-bought decorative item (a contemporary decor vase, mass-produced ornamental piece) with machine-perfect finish, current retail styling, and NO hallmarks of a known collectible type is COMMON — no matter how fancy it looks. Fancy appearance alone is NOT collectible value.\n\nPLAIN GLASSWARE AND DRINKWARE — DEFAULT COMMON: Clear, uncolored, machine-pressed or molded glass with NO mark, NO iridescence, NO opalescence, NO applied/cut decoration, and NO recognized collectible pattern is COMMON — this includes drinking glasses, tumblers, plain vases, faceted or twisted-form glass, and generic barware. A twisted, faceted, or geometric SHAPE is styling, not a collectible signal. Only call clear glass COLLECTIBLE if you positively recognize a real collectible glass category (Fenton, Blenko, Depression glass, elegant/cut crystal with a maker, carnival glass, etc.) by a genuine diagnostic feature — never on decorative form alone. When plain unmarked clear glass could be either a common tumbler or a minor unmarked vase, that ambiguity means COMMON, not COLLECTIBLE.\n\nThe real question is NOT 'is it fancy or plain' and NOT 'is it marked or unmarked.' It is: 'Is there an identifiable maker's mark, OR do the actual visual characteristics match a genuine collectible category I recognize, OR show real age, handcraft, or artistry?' If yes → COLLECTIBLE. If it's just an ordinary modern manufactured item (however decorative) → COMMON. When you genuinely recognize real signs of a collectible type or age but can't be certain, lean COLLECTIBLE. Respond with EXACTLY ONE WORD: either COMMON or COLLECTIBLE. No punctuation, no explanation.",
@@ -207,6 +209,7 @@ export default async (req) => {
         }),
       });
       const classifyData = await classifyResp.json();
+      triageUsage = classifyData.usage || null;
       const word = (classifyData.content || [])
         .filter((i) => i.type === "text")
         .map((i) => i.text)
@@ -282,7 +285,8 @@ export default async (req) => {
 
     // --- Cost tracking (owner-only, for pricing feasibility) ---
     // Pull the real usage numbers off this specific call and compute what it
-    // actually cost. Rates (Sonnet 4.6, Aug 2026): $3/M input, $15/M output.
+    // actually cost. Valuation rates (Sonnet 4.6): $3/M input, $15/M output.
+    // Triage (Haiku 4.5) is added below so the total covers the whole run.
     // Web search bills separately at ~$10 per 1,000 searches = $0.01 each.
     let costInfo = null;
     try {
@@ -293,7 +297,12 @@ export default async (req) => {
       const inCost = (inTok / 1_000_000) * 3.0;
       const outCost = (outTok / 1_000_000) * 15.0;
       const searchCost = searches * 0.01;
-      const total = inCost + outCost + searchCost;
+      // Triage call (Haiku 4.5: $1/M input, $5/M output). Zero on a
+      // clarification round, where triage is skipped.
+      const tIn = triageUsage?.input_tokens || 0;
+      const tOut = triageUsage?.output_tokens || 0;
+      const triageCost = (tIn / 1_000_000) * 1.0 + (tOut / 1_000_000) * 5.0;
+      const total = inCost + outCost + searchCost + triageCost;
       costInfo = {
         inputTokens: inTok,
         outputTokens: outTok,
@@ -301,6 +310,11 @@ export default async (req) => {
         inCost: +inCost.toFixed(4),
         outCost: +outCost.toFixed(4),
         searchCost: +searchCost.toFixed(4),
+        triageModel: triageUsage ? TRIAGE_MODEL : "skipped",
+        triageInputTokens: tIn,
+        triageOutputTokens: tOut,
+        triageCost: +triageCost.toFixed(4),
+        valuationCost: +(inCost + outCost + searchCost).toFixed(4),
         total: +total.toFixed(4),
       };
     } catch {}

@@ -5,7 +5,7 @@ import { getStore } from "@netlify/blobs";
 // POST { deviceId, action }  action = "check" | "consume"
 //   check   -> returns { used, limit, allowed } without incrementing
 //   consume -> increments if under limit, returns { used, limit, allowed }
-const FREE_LIMIT = 1000;
+const FREE_LIMIT = 20;
 
 export default async (req) => {
   if (req.method !== "POST") {

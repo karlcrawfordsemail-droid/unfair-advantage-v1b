@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 
 // App version — bump on every deploy so the running site shows which build is live.
-const APP_VERSION = "v1B.34";
+const APP_VERSION = "v1B.36";
 
 /* ============================================================================
    UNFAIR ADVANTAGE — v1B
@@ -14,10 +14,28 @@ const APP_VERSION = "v1B.34";
    ========================================================================== */
 
 const MAX_PHOTOS = 5;
-const FREE_LIMIT = 1000; // DEV: raised from 5 for testing — set back to 5 before real testers
+const FREE_LIMIT = 20; // Tester round: 20 valuations for known home testers
 // Testing: require quick feedback before the next valuation unlocks.
 // Set to false at launch — the follow-up stays, feedback becomes optional/gone.
 const REQUIRE_FEEDBACK = true;
+
+// Rotating second question — keeps feedback from becoming muscle memory.
+// The fixed accuracy check ("Does the price look right?") runs every time for a
+// comparable hit-rate; this second question cycles so each valuation asks
+// something different. Chip answers keep it one-tap.
+const ROTATING_QUESTIONS = [
+  { key: "id_correct",   q: "Was the identification correct?",              chips: ["Yes", "Close", "No"] },
+  { key: "price_dir",    q: "Did the price feel…",                          chips: ["Too high", "About right", "Too low"] },
+  { key: "reasoning",    q: "Was the reasoning convincing?",                chips: ["Yes", "Somewhat", "No"] },
+  { key: "trust_sell",   q: "Would you trust this to price it for sale?",   chips: ["Yes", "Maybe", "No"] },
+  { key: "surprise",     q: "Did anything about this one surprise you?",    chips: ["No", "A little", "Yes"] },
+  { key: "missed",       q: "Did it miss anything you'd want it to catch?", chips: ["No", "Maybe", "Yes"] },
+  { key: "speed",        q: "How was the wait time on this one?",           chips: ["Fast", "Okay", "Slow"] },
+  { key: "confidence",   q: "Was the confidence level believable?",         chips: ["Yes", "Not sure", "No"] },
+];
+// The open-ended written question appears at these checkpoints (by valuation
+// number), not every time — spacing keeps the written answers thoughtful.
+const OPEN_ENDED_EVERY = 5;
 
 // Stable per-device id for the server-side usage cap. Generated once and kept
 // in localStorage; if cleared, a new id is minted (fresh device from the
@@ -489,7 +507,7 @@ export default function App() {
 
   const [count, setCount] = useState(0); // completed valuations this session
   const [needsFeedback, setNeedsFeedback] = useState(false);
-  const [fb, setFb] = useState({ reliable: null, note: "" });
+  const [fb, setFb] = useState({ reliable: null, rot: null, note: "" });
 
   const captureIndexRef = useRef(0);
   const cameraInputRef = useRef(null);
@@ -571,40 +589,67 @@ export default function App() {
 
   const handleFile = (fileList) => {
     if (!fileList || !fileList.length) return;
-    const file = fileList[0];
-    const slot = captureIndexRef.current;
+    const startSlot = captureIndexRef.current;
     const MAX_EDGE = 1024, QUALITY = 0.8;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      const dataUrl = ev.target.result;
-      if (typeof dataUrl !== "string" || dataUrl.indexOf(",") === -1) {
-        setError("That photo couldn't be read. Try a different image.");
-        return;
-      }
-      const img = new Image();
-      img.onload = () => {
-        let { width, height } = img;
-        if (width > MAX_EDGE || height > MAX_EDGE) {
-          if (width >= height) { height = Math.round((height * MAX_EDGE) / width); width = MAX_EDGE; }
-          else { width = Math.round((width * MAX_EDGE) / height); height = MAX_EDGE; }
-        }
-        const canvas = document.createElement("canvas");
-        canvas.width = width; canvas.height = height;
-        canvas.getContext("2d").drawImage(img, 0, 0, width, height);
-        const outUrl = canvas.toDataURL("image/jpeg", QUALITY);
-        const base64 = outUrl.split(",")[1];
-        setPhotos((prev) => {
-          const next = prev.slice();
-          next[slot] = { src: outUrl, data: base64, mediaType: "image/jpeg" };
-          return next;
-        });
-        setError(null);
+
+    // Figure out which slots we can fill: the tapped slot, then any empty
+    // slots after it, up to MAX_PHOTOS. This lets a user pick several photos
+    // at once from the gallery and have them land in order.
+    const images = Array.from(fileList).filter(
+      (f) => !f.type || f.type.indexOf("image/") === 0 || /\.(jpe?g|png|heic|heif|webp)$/i.test(f.name || "")
+    );
+    if (!images.length) { setError("No image files found. Pick JPG, PNG, or HEIC photos."); return; }
+
+    const processOne = (file, slot) => new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        const dataUrl = ev.target.result;
+        if (typeof dataUrl !== "string" || dataUrl.indexOf(",") === -1) { resolve(); return; }
+        const img = new Image();
+        img.onload = () => {
+          let { width, height } = img;
+          if (width > MAX_EDGE || height > MAX_EDGE) {
+            if (width >= height) { height = Math.round((height * MAX_EDGE) / width); width = MAX_EDGE; }
+            else { width = Math.round((width * MAX_EDGE) / height); height = MAX_EDGE; }
+          }
+          const canvas = document.createElement("canvas");
+          canvas.width = width; canvas.height = height;
+          canvas.getContext("2d").drawImage(img, 0, 0, width, height);
+          const outUrl = canvas.toDataURL("image/jpeg", QUALITY);
+          setPhotos((prev) => {
+            const next = prev.slice();
+            next[slot] = { src: outUrl, data: outUrl.split(",")[1], mediaType: "image/jpeg" };
+            return next;
+          });
+          resolve();
+        };
+        img.onerror = () => resolve();
+        img.src = dataUrl;
       };
-      img.onerror = () => setError("That photo couldn't be read. Try a different image.");
-      img.src = dataUrl;
-    };
-    reader.onerror = () => setError("That photo couldn't be read. Try a different image.");
-    reader.readAsDataURL(file);
+      reader.onerror = () => resolve();
+      reader.readAsDataURL(file);
+    });
+
+    setPhotos((prev) => {
+      // Build the list of target slots: start at the tapped slot, then fill
+      // forward into any empty slot, never exceeding MAX_PHOTOS total.
+      const targets = [];
+      let s = startSlot;
+      for (let k = 0; k < images.length && s < MAX_PHOTOS; k++) {
+        // find next usable slot >= s: the tapped one, or the next empty one
+        while (s < MAX_PHOTOS && s !== startSlot && prev[s]) s++;
+        if (s >= MAX_PHOTOS) break;
+        targets.push(s);
+        s++;
+      }
+      // reveal extra slots so any filled beyond the first 3 are visible
+      const highest = targets.length ? targets[targets.length - 1] : startSlot;
+      if (highest >= 3) setExtraVisible(Math.max(0, highest - 2));
+      // kick off processing (async); each writes its own slot
+      images.slice(0, targets.length).forEach((file, i) => processOne(file, targets[i]));
+      return prev; // actual photo writes happen in processOne
+    });
+    setError(null);
   };
 
   // Read + downsize a photo for the follow-up (stores {data, mediaType}).
@@ -705,11 +750,10 @@ export default function App() {
       });
       if (start.status !== 202 && !start.ok) { fail("Couldn't start the valuation. Try again."); return; }
 
-      // Poll — wait window must exceed slowest backend run (~260s observed).
-      // 150 tries x 2000ms = 300s (5 min) before giving up.
-      const maxTries = 150;
+      // Poll
+      const maxTries = 200; // 200 x 1.5s = 300s ceiling; real runs finish in ~25-50s
       for (let i = 0; i < maxTries; i++) {
-        await sleep(2000);
+        await sleep(1500);
         let poll;
         try { poll = await fetch(`/.netlify/functions/result?jobId=${encodeURIComponent(id)}`); }
         catch { continue; }
@@ -770,7 +814,7 @@ export default function App() {
     setConsent(null);
     setCount((c) => c + 1);
     // Feedback gate: required before the next valuation unlocks, and cap at FREE_LIMIT.
-    setFb({ reliable: null, note: "" });
+    setFb({ reliable: null, rot: null, note: "" });
     setNeedsFeedback(true);
     setPhase("result");
   };
@@ -808,9 +852,8 @@ export default function App() {
         }),
       });
       // Poll the same job record for the follow-up outcome.
-      // 150 x 2000ms = 300s, matches the main poll window.
-      for (let i = 0; i < 150; i++) {
-        await sleep(2000);
+      for (let i = 0; i < 200; i++) { // 300s ceiling, same as the main valuation
+        await sleep(1500);
         let poll;
         try { poll = await fetch(`/.netlify/functions/result?jobId=${encodeURIComponent(job.jobId)}`); }
         catch { continue; }
@@ -899,10 +942,14 @@ export default function App() {
   const submitFeedback = () => {
     // Feedback is the price of admission. POST to the server; keep a local
     // copy as a fallback so nothing is lost if the network hiccups.
+    const rotType = ROTATING_QUESTIONS[(count - 1 + ROTATING_QUESTIONS.length) % ROTATING_QUESTIONS.length];
     const payload = {
       reliable: fb.reliable,
+      rot_q: rotType ? rotType.q : "",
+      rot_a: fb.rot || "",
       change: fb.note || "",
       item: result && result.id ? result.id : "unknown",
+      valuation_num: count,
       version: APP_VERSION,
     };
     fetch("/.netlify/functions/feedback", {
@@ -955,7 +1002,7 @@ export default function App() {
         onChange={(e) => { handleFile(e.target.files); e.target.value = ""; }}
       />
       <input
-        ref={fileInputRef} type="file" accept="image/*"
+        ref={fileInputRef} type="file" accept="image/*" multiple
         style={{ display: "none" }}
         onChange={(e) => { handleFile(e.target.files); e.target.value = ""; }}
       />
@@ -1194,6 +1241,7 @@ export default function App() {
           {showCost && (costInfo || timing) && (
             <div className="value-only" style={{ background: "#eef4f0" }}>
               {costInfo && <div>cost: ${Number(costInfo.total).toFixed(4)} &middot; in {costInfo.inputTokens} / out {costInfo.outputTokens} &middot; {costInfo.searches} search{costInfo.searches === 1 ? "" : "es"}</div>}
+              {costInfo && costInfo.triageModel && <div>triage: {costInfo.triageModel} &middot; ${Number(costInfo.triageCost || 0).toFixed(4)} &middot; valuation (Sonnet): ${Number(costInfo.valuationCost || 0).toFixed(4)}</div>}
               {timing && <div>time: {(timing.totalMs / 1000).toFixed(1)}s total &middot; triage {(timing.triageMs / 1000).toFixed(1)}s &middot; valuation {(timing.valuationMs / 1000).toFixed(1)}s &middot; lane {timing.lane}</div>}
             </div>
           )}
@@ -1241,7 +1289,7 @@ export default function App() {
 
           {needsFeedback && REQUIRE_FEEDBACK && (
             <div ref={feedbackRef} className={flashFeedback ? "flash-attention" : ""}>
-              <FeedbackGate fb={fb} setFb={setFb} onSubmit={submitFeedback} />
+              <FeedbackGate fb={fb} setFb={setFb} onSubmit={submitFeedback} count={count} />
             </div>
           )}
 
@@ -1276,12 +1324,18 @@ export default function App() {
         </div>
       )}
 
-      {/* -------------------- LIMIT -------------------- */}
+      {/* -------------------- LIMIT / END OF TEST -------------------- */}
       {phase === "limit" && (
         <div className="screen">
           <div className="limit-box">
-            <h3>You've used your free valuations.</h3>
-            <p>Thanks for testing Unfair Advantage. Your feedback on each one has been saved.</p>
+            <h3>That's all 20 for the test round.</h3>
+            <p>Thanks for putting the tool through its paces — every bit of your feedback was saved.</p>
+            <p style={{ marginTop: 12 }}>
+              I'd love to hear what you think: what worked, what didn't, and whether the prices felt right.
+            </p>
+            <p style={{ marginTop: 12, fontWeight: 600 }}>
+              Text Karl: <a href="sms:+14234139435" style={{ color: "var(--deep)" }}>423-413-9435</a>
+            </p>
           </div>
         </div>
       )}
@@ -1397,14 +1451,19 @@ function ResultView({ result }) {
 }
 
 /* ------------------------- Feedback gate ------------------------- */
-function FeedbackGate({ fb, setFb, onSubmit }) {
-  const ready = fb.reliable !== null;
+function FeedbackGate({ fb, setFb, onSubmit, count }) {
+  // Rotate the second question by valuation number so it changes each time.
+  const rot = ROTATING_QUESTIONS[(count - 1 + ROTATING_QUESTIONS.length) % ROTATING_QUESTIONS.length];
+  // Written question only at checkpoints (every OPEN_ENDED_EVERY valuations).
+  const showOpen = count % OPEN_ENDED_EVERY === 0;
+  // Ready to continue once both the fixed check and the rotating one are answered.
+  const ready = fb.reliable !== null && fb.rot !== null;
   const pick = (k, v) => setFb((p) => ({ ...p, [k]: v }));
 
   return (
     <div className="feedback-card">
-      <h3>How's the tool working?</h3>
-      <p className="feedback-sub">Answering unlocks your next valuation.</p>
+      <h3>Quick check</h3>
+      <p className="feedback-sub">Two taps unlock your next valuation.</p>
 
       <div className="fq">
         <div className="q">Does the price look about right?</div>
@@ -1416,9 +1475,20 @@ function FeedbackGate({ fb, setFb, onSubmit }) {
       </div>
 
       <div className="fq">
-        <div className="q">What would you change about the tool? <span style={{ fontWeight: 400, color: "#8a938f" }}>(optional)</span></div>
-        <textarea className="fb-note" value={fb.note} onChange={(e) => setFb((p) => ({ ...p, note: e.target.value }))} placeholder={"Leave blank if nothing"} />
+        <div className="q">{rot.q}</div>
+        <div className="chip-row">
+          {rot.chips.map((v) => (
+            <button key={v} className={"chip" + (fb.rot === v ? " sel" : "")} onClick={() => pick("rot", v)}>{v}</button>
+          ))}
+        </div>
       </div>
+
+      {showOpen && (
+        <div className="fq">
+          <div className="q">What would make the tool better? <span style={{ fontWeight: 400, color: "#8a938f" }}>(optional)</span></div>
+          <textarea className="fb-note" value={fb.note} onChange={(e) => setFb((p) => ({ ...p, note: e.target.value }))} placeholder={"Leave blank if nothing"} />
+        </div>
+      )}
 
       <button className="primary-button" disabled={!ready} onClick={onSubmit}>
         Submit &amp; continue
