@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 
 // App version — bump on every deploy so the running site shows which build is live.
-const APP_VERSION = "v1B.36";
+const APP_VERSION = "v1B.37";
 
 /* ============================================================================
    UNFAIR ADVANTAGE — v1B
@@ -50,6 +50,25 @@ function getDeviceId() {
     return id;
   } catch {
     return "d_ephemeral";
+  }
+}
+
+// Personal access key for unlimited use. Opening the site with ?key=xxxx saves
+// the key on this device, then removes it from the address bar. The server
+// (usage.js) decides whether the key is valid, so a removed key stops working.
+function getAccessKey() {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const fromUrl = params.get("key");
+    if (fromUrl) {
+      localStorage.setItem("ua_key", fromUrl.trim());
+      params.delete("key");
+      const qs = params.toString();
+      window.history.replaceState(null, "", window.location.pathname + (qs ? "?" + qs : "") + window.location.hash);
+    }
+    return localStorage.getItem("ua_key") || "";
+  } catch {
+    return "";
   }
 }
 
@@ -505,7 +524,10 @@ export default function App() {
   const [timing, setTiming] = useState(null);
   const [consent, setConsent] = useState(null); // { jobId, photoCount }
 
-  const [count, setCount] = useState(0); // completed valuations this session
+  const [count, setCount] = useState(0); // valuations used on this device (synced from server on load)
+  const [unlimited, setUnlimited] = useState(false); // valid personal key on this device
+  const [usageLoaded, setUsageLoaded] = useState(false);
+  const capped = !unlimited && count >= FREE_LIMIT;
   const [needsFeedback, setNeedsFeedback] = useState(false);
   const [fb, setFb] = useState({ reliable: null, rot: null, note: "" });
 
@@ -526,6 +548,24 @@ export default function App() {
   })();
 
   useEffect(() => () => clearInterval(msgTimer.current), []);
+
+  // On load: read the real used-count (and key status) from the server so the
+  // remaining-count note is correct across visits, not reset each time.
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = await fetch("/.netlify/functions/usage", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ deviceId: getDeviceId(), key: getAccessKey(), action: "check" }),
+        });
+        const u = await r.json();
+        if (u && u.unlimited) setUnlimited(true);
+        if (u && typeof u.used === "number") setCount(u.used);
+      } catch (e) { /* non-fatal: note just shows the default */ }
+      setUsageLoaded(true);
+    })();
+  }, []);
 
   /* ---- wait-message cycling ---- */
   const startTrack = (klass) => {
@@ -890,9 +930,10 @@ export default function App() {
       const r = await fetch("/.netlify/functions/usage", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ deviceId: getDeviceId(), action: "consume" }),
+        body: JSON.stringify({ deviceId: getDeviceId(), key: getAccessKey(), action: "consume" }),
       });
       const u = await r.json();
+      setUnlimited(!!(u && u.unlimited));
       if (u && u.allowed === false) { setPhase("limit"); return; }
     } catch (e) {
       // If the usage service is unreachable, fail OPEN (let them value) —
@@ -935,7 +976,7 @@ export default function App() {
     setTiming(null);
     setNeedsFeedback(false);
     try { window.scrollTo({ top: 0, behavior: "auto" }); } catch (e) { /* non-fatal */ }
-    if (count >= FREE_LIMIT) setPhase("limit");
+    if (capped) setPhase("limit");
     else setPhase("capture");
   };
 
@@ -1180,11 +1221,15 @@ export default function App() {
             </div>
           </section>
 
-          {count > 0 && (
+          {usageLoaded && (
             <div className="count-note">
-              {FREE_LIMIT - count > 0
-                ? `${FREE_LIMIT - count} free valuation${FREE_LIMIT - count === 1 ? "" : "s"} left`
-                : "Free valuations used"}
+              {unlimited
+                ? "Unlimited access"
+                : count === 0
+                  ? `Test round: ${FREE_LIMIT} free valuations`
+                  : FREE_LIMIT - count > 0
+                    ? `${FREE_LIMIT - count} of ${FREE_LIMIT} remaining`
+                    : "All test valuations used"}
             </div>
           )}
 
@@ -1316,7 +1361,7 @@ export default function App() {
                 nextItem();
               }}
             >
-              {count >= FREE_LIMIT
+              {capped
                 ? "Done"
                 : (REQUIRE_FEEDBACK && needsFeedback ? "Answer Survey to Continue" : "New item")}
             </button>
@@ -1328,13 +1373,13 @@ export default function App() {
       {phase === "limit" && (
         <div className="screen">
           <div className="limit-box">
-            <h3>That's all 20 for the test round.</h3>
-            <p>Thanks for putting the tool through its paces — every bit of your feedback was saved.</p>
+            <h3>Thank you for testing Unfair Advantage.</h3>
+            <p>You've used all {FREE_LIMIT} test valuations.</p>
             <p style={{ marginTop: 12 }}>
-              I'd love to hear what you think: what worked, what didn't, and whether the prices felt right.
+              We'll let you know when Unfair Advantage launches.
             </p>
             <p style={{ marginTop: 12, fontWeight: 600 }}>
-              Text Karl: <a href="sms:+14234139435" style={{ color: "var(--deep)" }}>423-413-9435</a>
+              Anything to add? Text Karl: <a href="sms:+14234139435" style={{ color: "var(--deep)" }}>423-413-9435</a>
             </p>
           </div>
         </div>
