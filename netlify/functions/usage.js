@@ -8,7 +8,39 @@ import { getStore } from "@netlify/blobs";
 // Optional { key }: if it matches one of the comma-separated keys in the
 // UA_UNLIMITED_KEYS environment variable, the cap is skipped (unlimited: true).
 // Remove a key from that variable and redeploy to cut that one person off.
+// UA_UNLIMITED_DEVICES: comma-separated device ids that are unlimited with no
+// key at all (for people who can't open a key link). Copy the entry name from
+// the Blobs "usage" store, with or without its "dev_" prefix.
+// Every open is logged on the device's entry (lastSeen, lastSeenEastern, phone)
+// so a specific person's entry can be found by when they opened the app.
 const FREE_LIMIT = 20;
+
+function cleanDeviceId(id) {
+  return String(id || "").trim().replace(/^dev_/, "").replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 64);
+}
+
+function unlimitedDevices() {
+  return String(process.env.UA_UNLIMITED_DEVICES || "")
+    .split(",").map(cleanDeviceId).filter(Boolean);
+}
+
+// Short readable phone description from the browser's user-agent string.
+function phoneType(ua) {
+  ua = String(ua || "");
+  if (/iPhone/i.test(ua)) return "iPhone";
+  if (/iPad/i.test(ua)) return "iPad";
+  const m = ua.match(/Android[^;)]*;\s*([^;)]+)/i);
+  if (/Android/i.test(ua)) return "Android" + (m && m[1] && !/^wv$/i.test(m[1].trim()) ? " (" + m[1].trim() + ")" : "");
+  if (/Macintosh/i.test(ua)) return "Mac";
+  if (/Windows/i.test(ua)) return "Windows PC";
+  return "Unknown";
+}
+
+function easternTime(d) {
+  try {
+    return d.toLocaleString("en-US", { timeZone: "America/New_York", dateStyle: "medium", timeStyle: "short" }) + " Eastern";
+  } catch { return d.toISOString(); }
+}
 
 function unlimitedKeys() {
   return String(process.env.UA_UNLIMITED_KEYS || "")
@@ -30,14 +62,44 @@ export default async (req) => {
       });
     }
     const store = getStore("usage");
-    const key = "dev_" + deviceId.replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 64);
+    const devId = cleanDeviceId(deviceId);
+    const key = "dev_" + devId;
     let used = 0;
+    let rec = null;
     try {
-      const rec = await store.get(key, { type: "json" });
+      rec = await store.get(key, { type: "json" });
       if (rec && typeof rec.used === "number") used = rec.used;
     } catch { /* first time — no record yet */ }
 
+    // Log this open on the device's entry (keeps used/at as they were).
+    const now = new Date();
+    const ua = req.headers.get("user-agent") || "";
+    const seen = {
+      lastSeen: now.toISOString(),
+      lastSeenEastern: easternTime(now),
+      phone: phoneType(ua),
+      userAgent: ua.slice(0, 300),
+    };
+    const saveDevice = async (fields) => {
+      try {
+        await store.setJSON(key, { ...(rec || {}), used, ...seen, ...fields });
+      } catch { /* logging is best-effort */ }
+    };
+
+    // Whitelisted device: unlimited with no key. Count still goes up so his
+    // usage stays visible, but the cap never applies.
+    if (!unlimited && unlimitedDevices().includes(devId)) {
+      if (action === "consume") {
+        used += 1;
+        await saveDevice({ at: now.toISOString(), unlimitedDevice: true });
+      } else {
+        await saveDevice({ unlimitedDevice: true });
+      }
+      return json({ used, limit: FREE_LIMIT, allowed: true, unlimited: true });
+    }
+
     if (unlimited) {
+      await saveDevice({ keyHolder: cleanKey });
       // Key holder: no cap. Still count per key so usage per person is visible
       // in the Blobs "usage" store (entries named key_<key>).
       const kKey = "key_" + cleanKey.replace(/[^a-z0-9_-]/g, "").slice(0, 64);
@@ -58,11 +120,12 @@ export default async (req) => {
         return json({ used, limit: FREE_LIMIT, allowed: false });
       }
       used += 1;
-      await store.setJSON(key, { used, at: new Date().toISOString() });
+      await saveDevice({ at: now.toISOString() });
       return json({ used, limit: FREE_LIMIT, allowed: true });
     }
 
-    // default: check only
+    // default: check only (still logs the open)
+    await saveDevice({});
     return json({ used, limit: FREE_LIMIT, allowed: used < FREE_LIMIT, unlimited: false });
   } catch (e) {
     return new Response(JSON.stringify({ error: String(e) }), {
