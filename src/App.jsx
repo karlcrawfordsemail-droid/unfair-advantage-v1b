@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 
 // App version — bump on every deploy so the running site shows which build is live.
-const APP_VERSION = "v1B.38";
+const APP_VERSION = "v1B.39";
 
 /* ============================================================================
    UNFAIR ADVANTAGE — v1B
@@ -388,7 +388,8 @@ textarea#notes:focus, input#zip:focus{ outline:2px solid #b7a6e6; outline-offset
 .scenarios h3{ font-family:var(--font-display); font-size:.95rem; color:var(--deep); margin:0 0 8px; }
 .scenario-row{ display:flex; justify-content:space-between; align-items:baseline; gap:12px; padding:6px 0; border-bottom:1px dotted var(--line); }
 .scenario-cond{ font-size:.9rem; color:var(--muted); line-height:1.35; }
-.scenario-val{ font-family:var(--font-display); font-weight:800; font-size:1rem; color:var(--deep); white-space:nowrap; }
+.scenario-val{ font-family:var(--font-display); font-weight:800; font-size:1rem; color:var(--deep); white-space:nowrap; text-align:right; }
+.scenario-ws{ font-weight:600; font-size:.78rem; color:var(--muted); margin-top:2px; }
 .scenarios-note{ font-size:.78rem; color:var(--muted); font-style:italic; margin:8px 0 0; }
 
 .market-strip{
@@ -1450,11 +1451,14 @@ function ResultView({ result }) {
             return (
               <div className="scenario-row" key={i}>
                 <div className="scenario-cond">{cond}</div>
-                <div className="scenario-val">{sc.value || "\u2014"}</div>
+                <div className="scenario-val">
+                  {sc.value || "\u2014"}
+                  {sc.walkAway && <div className="scenario-ws">wholesale {sc.walkAway}</div>}
+                </div>
               </div>
             );
           })}
-          <p className="scenarios-note">Confirm the condition above to narrow the range.</p>
+          <p className="scenarios-note">Check these to see which price applies to your item.</p>
         </section>
       )}
 

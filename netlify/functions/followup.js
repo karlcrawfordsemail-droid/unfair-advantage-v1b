@@ -9,6 +9,52 @@ import { getStore } from "@netlify/blobs";
 // Writes the outcome to the same job record the poller reads, using a distinct
 // status so the frontend can render it: "followup_done".
 
+// --- Wholesale enforcement (same logic as start-valuation-background.js) ---
+function parseRange(s) {
+  if (typeof s !== "string") return null;
+  const nums = (s.replace(/,/g, "").match(/\d+(\.\d+)?/g) || []).map(Number);
+  if (!nums.length) return null;
+  let lo = nums[0], hi = nums.length > 1 ? nums[1] : nums[0];
+  if (hi < lo) [lo, hi] = [hi, lo];
+  return { lo, hi };
+}
+function roundMoney(n) {
+  if (n < 100) return Math.max(1, Math.round(n));
+  if (n < 1000) return Math.round(n / 5) * 5;
+  return Math.round(n / 25) * 25;
+}
+function fmtRange(lo, hi) {
+  const f = (n) => "$" + n.toLocaleString("en-US");
+  return lo === hi ? f(lo) : f(lo) + "\u2013" + hi.toLocaleString("en-US");
+}
+function fixWholesale(valueStr, wsStr) {
+  const r = parseRange(valueStr);
+  if (!r || r.hi <= 0) return wsStr;
+  if (r.hi < 2) return "Under $1";
+  const w = parseRange(wsStr);
+  const bound = (retail, cand) => {
+    const min = retail / 3, max = retail / 2;
+    const x = cand == null ? retail * 0.4 : cand;
+    return Math.min(max, Math.max(min, x));
+  };
+  let lo = roundMoney(bound(r.lo, w ? w.lo : null));
+  let hi = roundMoney(bound(r.hi, w ? w.hi : null));
+  if (lo > hi) lo = hi;
+  return fmtRange(lo, hi);
+}
+function enforceWholesale(p) {
+  if (!p || typeof p !== "object") return;
+  if (p.value) {
+    p.walkAway = fixWholesale(p.value, p.walkAway || p.wholesale);
+    delete p.wholesale;
+  }
+  if (Array.isArray(p.scenarios)) {
+    for (const sc of p.scenarios) {
+      if (sc && sc.value) sc.walkAway = fixWholesale(sc.value, sc.walkAway);
+    }
+  }
+}
+
 export default async (req) => {
   if (req.method !== "POST") return new Response("Method not allowed", { status: 405 });
 
@@ -49,10 +95,11 @@ export default async (req) => {
     const priorSummary = priorResult
       ? JSON.stringify({
           id: priorResult.id,
-          listPrice: priorResult.listPrice,
-          wholesale: priorResult.wholesale,
+          itemType: priorResult.itemType,
           value: priorResult.value,
+          walkAway: priorResult.walkAway || priorResult.wholesale,
           confidence: priorResult.confidence,
+          scenarios: priorResult.scenarios,
         })
       : "(prior valuation unavailable)";
 
@@ -68,8 +115,13 @@ export default async (req) => {
       "Respond with ONLY valid JSON, no markdown, in this shape:\n" +
       "{ \"mode\": \"answer\" | \"revalue\", \"reply\": \"<your conversational answer to the user, 1-4 sentences>\", " +
       "\"result\": <if mode is revalue, a FULL updated valuation object with the same fields as before: " +
-      "id, listPrice, wholesale, value, confidence, bestMarket, scenarios, reasoning, cantVerify; otherwise null> }\n" +
-      "When re-valuing, keep the same honest, realized-price, reasoned methodology. State what changed and why.";
+      "id, itemType (Local, Collectible, or SpecificBuyer), confidence, value, walkAway, scenarios (each with condition, value, walkAway), reasoning, cantVerify; otherwise null> }\n" +
+      "When re-valuing, keep the same honest, realized-price, reasoned methodology. State what changed and why.\n" +
+      "RULES WHEN RE-VALUING: value = retail range, the realistic SOLD range for the most likely reading of the item; when the pricier reading is unconfirmed, use the common/lower reading and put the pricier one in an 'If ...' scenario (scenarios may sit outside the headline). " +
+      "walkAway = wholesale, what a reseller should pay: each end is one-third to one-half of the matching retail end, about one-half for easy, fast sellers and about one-third for slow, bulky, niche, or low-dollar items. " +
+      "itemType is Collectible only with an identifiable maker or a recognized collector category; plain household goods, even old ones, are Local. " +
+      "Do not state a maker, date, or material (solid brass, sterling) as fact without a visible mark or the user's confirmation. " +
+      "The user's stated facts about the item are authoritative.";
 
     const userText =
       "The user's follow-up message: \"" + (message || "(no text, see new photo)") + "\"" +
@@ -89,7 +141,7 @@ export default async (req) => {
         messages: [
           { role: "user", content: [...imageBlocks, { type: "text", text: userText }] },
         ],
-        tools: [{ type: "web_search_20250305", name: "web_search" }],
+        tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 2 }],
       }),
     });
 
@@ -119,6 +171,7 @@ export default async (req) => {
       return new Response("followup done (fallback)");
     }
 
+    if (parsed.mode === "revalue" && parsed.result) enforceWholesale(parsed.result);
     await store.setJSON(jobId, {
       status: "followup_done",
       followup: {
