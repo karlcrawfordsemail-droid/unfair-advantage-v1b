@@ -18,19 +18,25 @@ function parseRange(s) {
   if (hi < lo) [lo, hi] = [hi, lo];
   return { lo, hi };
 }
+// Under $1 rounds to 5 cents, under $10 to 50 cents, then whole dollars.
 function roundMoney(n) {
-  if (n < 100) return Math.max(1, Math.round(n));
+  if (n < 1) return Math.max(0.05, Math.round(n * 20) / 20);
+  if (n < 10) return Math.round(n * 2) / 2;
+  if (n < 100) return Math.round(n);
   if (n < 1000) return Math.round(n / 5) * 5;
   return Math.round(n / 25) * 25;
 }
+// Formats like "35\u201350\u00a2", "50\u00a2\u2013$1.50", "$1.50\u20133", "$15\u201325".
 function fmtRange(lo, hi) {
-  const f = (n) => "$" + n.toLocaleString("en-US");
-  return lo === hi ? f(lo) : f(lo) + "\u2013" + hi.toLocaleString("en-US");
+  const cents = (n) => Math.round(n * 100) + "\u00a2";
+  const dollars = (n) => (n % 1 ? n.toFixed(2) : n.toLocaleString("en-US"));
+  if (hi < 1) return lo === hi ? cents(lo) : Math.round(lo * 100) + "\u2013" + cents(hi);
+  if (lo < 1) return cents(lo) + "\u2013$" + dollars(hi);
+  return lo === hi ? "$" + dollars(lo) : "$" + dollars(lo) + "\u2013" + dollars(hi);
 }
 function fixWholesale(valueStr, wsStr) {
   const r = parseRange(valueStr);
   if (!r || r.hi <= 0) return wsStr;
-  if (r.hi < 2) return "Under $1";
   const w = parseRange(wsStr);
   const bound = (retail, cand) => {
     const min = retail / 3, max = retail / 2;

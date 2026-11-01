@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 
 // App version — bump on every deploy so the running site shows which build is live.
-const APP_VERSION = "v1B.39";
+const APP_VERSION = "v1B.40";
 
 /* ============================================================================
    UNFAIR ADVANTAGE — v1B
@@ -70,6 +70,11 @@ function getAccessKey() {
   } catch {
     return "";
   }
+}
+
+// Enter/Done on a one-line field closes the keyboard so the Price button shows.
+function closeKeyboardOnEnter(e) {
+  if (e.key === "Enter") { e.preventDefault(); e.currentTarget.blur(); }
 }
 
 // The three core capture slots, in order. Labels/copy are the settled v1B wording.
@@ -150,7 +155,7 @@ body{
   80% { transform:translateX(4px); }
 }
 .flash-attention { animation:flashPulse .9s ease, nudge .5s ease; border-radius:14px; }
-.sticky-price-bar{  position:fixed; left:50%; transform:translateX(-50%); bottom:0;
+.sticky-price-bar{  position:fixed; left:50%; transform:translateX(-50%); bottom:var(--kb-offset, 0px);
   width:100%; max-width:520px; box-sizing:border-box;
   padding:12px 16px calc(12px + env(safe-area-inset-bottom, 0px));
   background:rgba(247,244,239,0.94); backdrop-filter:blur(8px);
@@ -527,6 +532,7 @@ export default function App() {
 
   const [count, setCount] = useState(0); // valuations used on this device (synced from server on load)
   const [unlimited, setUnlimited] = useState(false); // valid personal key on this device
+  const [family, setFamily] = useState(false); // friends-and-family key on this device
   const [usageLoaded, setUsageLoaded] = useState(false);
   const capped = !unlimited && count >= FREE_LIMIT;
   const [needsFeedback, setNeedsFeedback] = useState(false);
@@ -550,6 +556,26 @@ export default function App() {
 
   useEffect(() => () => clearInterval(msgTimer.current), []);
 
+  // Keep the bottom "Price this item" bar above the on-screen keyboard.
+  // Android Chrome handles this via interactive-widget in index.html; on
+  // iPhone the keyboard overlays the page, so measure it and lift the bar.
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const update = () => {
+      const layoutH = document.documentElement.clientHeight;
+      const covered = Math.max(0, layoutH - vv.height - vv.offsetTop);
+      document.documentElement.style.setProperty("--kb-offset", covered > 80 ? covered + "px" : "0px");
+    };
+    vv.addEventListener("resize", update);
+    vv.addEventListener("scroll", update);
+    update();
+    return () => {
+      vv.removeEventListener("resize", update);
+      vv.removeEventListener("scroll", update);
+    };
+  }, []);
+
   // On load: read the real used-count (and key status) from the server so the
   // remaining-count note is correct across visits, not reset each time.
   useEffect(() => {
@@ -562,6 +588,7 @@ export default function App() {
         });
         const u = await r.json();
         if (u && u.unlimited) setUnlimited(true);
+        if (u && u.family) setFamily(true);
         if (u && typeof u.used === "number") setCount(u.used);
       } catch (e) { /* non-fatal: note just shows the default */ }
       setUsageLoaded(true);
@@ -935,6 +962,7 @@ export default function App() {
       });
       const u = await r.json();
       setUnlimited(!!(u && u.unlimited));
+      setFamily(!!(u && u.family));
       if (u && u.allowed === false) { setPhase("limit"); return; }
     } catch (e) {
       // If the usage service is unreachable, fail OPEN (let them value) —
@@ -1142,6 +1170,7 @@ export default function App() {
                 className="intake-text" type="text" value={whatIsIt}
                 onChange={(e) => setWhatIsIt(e.target.value)}
                 placeholder="e.g. vase, lamp, chair, figurine"
+                enterKeyHint="done" onKeyDown={closeKeyboardOnEnter}
               />
             </div>
 
@@ -1160,6 +1189,7 @@ export default function App() {
               <input
                 className="intake-text" type="text" value={sizeText}
                 onChange={(e) => setSizeText(e.target.value)}
+                enterKeyHint="done" onKeyDown={closeKeyboardOnEnter}
                 placeholder="Rough measurements, or compare to a known item like a soda can, softball, or quarter"
               />
             </div>
@@ -1202,6 +1232,7 @@ export default function App() {
               <input
                 className="intake-text" type="text" value={origin}
                 onChange={(e) => setOrigin(e.target.value)}
+                enterKeyHint="done" onKeyDown={closeKeyboardOnEnter}
                 placeholder="e.g. inherited, thrift store, had it since the 70s"
               />
             </div>
@@ -1218,6 +1249,7 @@ export default function App() {
               <input
                 id="zip" type="text" inputMode="numeric" value={zip}
                 onChange={(e) => setZip(e.target.value)} placeholder="e.g. 12345"
+                enterKeyHint="done" onKeyDown={closeKeyboardOnEnter}
               />
             </div>
           </section>
@@ -1287,6 +1319,7 @@ export default function App() {
           {showCost && (costInfo || timing) && (
             <div className="value-only" style={{ background: "#eef4f0" }}>
               {costInfo && <div>cost: ${Number(costInfo.total).toFixed(4)} &middot; in {costInfo.inputTokens} / out {costInfo.outputTokens} &middot; {costInfo.searches} search{costInfo.searches === 1 ? "" : "es"}</div>}
+              {costInfo && (costInfo.cacheWriteTokens != null) && <div>cache: write {costInfo.cacheWriteTokens} / read {costInfo.cacheReadTokens}</div>}
               {costInfo && costInfo.triageModel && <div>triage: {costInfo.triageModel} &middot; ${Number(costInfo.triageCost || 0).toFixed(4)} &middot; valuation (Sonnet): ${Number(costInfo.valuationCost || 0).toFixed(4)}</div>}
               {timing && <div>time: {(timing.totalMs / 1000).toFixed(1)}s total &middot; triage {(timing.triageMs / 1000).toFixed(1)}s &middot; valuation {(timing.valuationMs / 1000).toFixed(1)}s &middot; lane {timing.lane}</div>}
             </div>
@@ -1319,6 +1352,7 @@ export default function App() {
                   onChange={(e) => setFollowMsg(e.target.value)}
                   placeholder={"e.g. it's signed Engstrom '67 — or, why so low?"}
                   onKeyDown={(e) => { if (e.key === "Enter") sendFollowup(); }}
+                  enterKeyHint="send"
                   disabled={followBusy}
                   autoFocus
                 />
@@ -1374,11 +1408,23 @@ export default function App() {
       {phase === "limit" && (
         <div className="screen">
           <div className="limit-box">
-            <h3>Thank you for testing Unfair Advantage.</h3>
-            <p>You've used all {FREE_LIMIT} test valuations.</p>
-            <p style={{ marginTop: 12 }}>
-              We'll let you know when Unfair Advantage launches.
-            </p>
+            {family ? (
+              <>
+                <h3>Thank you for trying Unfair Advantage.</h3>
+                <p>You've used your {FREE_LIMIT} free valuations.</p>
+                <p style={{ marginTop: 12 }}>
+                  A discounted family rate is coming soon. Karl will let you know when it's ready.
+                </p>
+              </>
+            ) : (
+              <>
+                <h3>Thank you for testing Unfair Advantage.</h3>
+                <p>You've used all {FREE_LIMIT} test valuations.</p>
+                <p style={{ marginTop: 12 }}>
+                  We'll let you know when Unfair Advantage launches.
+                </p>
+              </>
+            )}
             <p style={{ marginTop: 12, fontWeight: 600 }}>
               Anything to add? Text Karl: <a href="sms:+14234139435" style={{ color: "var(--deep)" }}>423-413-9435</a>
             </p>

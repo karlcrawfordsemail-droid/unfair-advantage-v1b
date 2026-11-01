@@ -13,7 +13,16 @@ import { getStore } from "@netlify/blobs";
 // the Blobs "usage" store, with or without its "dev_" prefix.
 // Every open is logged on the device's entry (lastSeen, lastSeenEastern, phone)
 // so a specific person's entry can be found by when they opened the app.
+// UA_FAMILY_KEYS: comma-separated keys for friends and family. Same 20-valuation
+// cap as testers, counted per key (works across their devices); their end
+// screen says a family rate is coming. Add/remove a key, then redeploy.
 const FREE_LIMIT = 20;
+const FAMILY_LIMIT = 20;
+
+function familyKeys() {
+  return String(process.env.UA_FAMILY_KEYS || "")
+    .split(",").map((k) => k.trim().toLowerCase()).filter(Boolean);
+}
 
 function cleanDeviceId(id) {
   return String(id || "").trim().replace(/^dev_/, "").replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 64);
@@ -55,6 +64,7 @@ export default async (req) => {
     const { deviceId, action, key: accessKey } = await req.json();
     const cleanKey = typeof accessKey === "string" ? accessKey.trim().toLowerCase() : "";
     const unlimited = !!cleanKey && unlimitedKeys().includes(cleanKey);
+    const family = !unlimited && !!cleanKey && familyKeys().includes(cleanKey);
     if (!deviceId || typeof deviceId !== "string") {
       return new Response(JSON.stringify({ error: "missing deviceId" }), {
         status: 400,
@@ -113,6 +123,25 @@ export default async (req) => {
         await store.setJSON(kKey, { used: kUsed, at: new Date().toISOString() });
       }
       return json({ used: kUsed, limit: FREE_LIMIT, allowed: true, unlimited: true });
+    }
+
+    if (family) {
+      await saveDevice({ familyKey: cleanKey });
+      const fKey = "family_" + cleanKey.replace(/[^a-z0-9_-]/g, "").slice(0, 64);
+      let fUsed = 0;
+      try {
+        const fr = await store.get(fKey, { type: "json" });
+        if (fr && typeof fr.used === "number") fUsed = fr.used;
+      } catch { /* first use of this key */ }
+      if (action === "consume") {
+        if (fUsed >= FAMILY_LIMIT) {
+          return json({ used: fUsed, limit: FAMILY_LIMIT, allowed: false, unlimited: false, family: true });
+        }
+        fUsed += 1;
+        await store.setJSON(fKey, { used: fUsed, at: new Date().toISOString() });
+        return json({ used: fUsed, limit: FAMILY_LIMIT, allowed: true, unlimited: false, family: true });
+      }
+      return json({ used: fUsed, limit: FAMILY_LIMIT, allowed: fUsed < FAMILY_LIMIT, unlimited: false, family: true });
     }
 
     if (action === "consume") {

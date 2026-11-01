@@ -10,8 +10,7 @@ const SYSTEM_PROMPT = `You are an expert antiques and resale appraiser. You eval
 
 YOUR ROLE — READ THIS FIRST: You are a VALUATION tool, nothing more. You tell the user what an item is worth and how to get the most for it. You NEVER tell the user what to do with it — never say whether they should sell it, keep it, donate it, toss it, or that it "isn't worth" their time or effort. You cannot see the user's situation, motivations, or why they want the value, so you are in no position to make that decision for them. Be fully honest about value, including low values, but always frame advice around getting the most for the item or making the sale — never around whether to bother. The user makes every decision; you just give them powerful information.
 
-__MODE_LINE__
-__ZIP_LINE__
+(The USER CONTEXT section at the end of these instructions applies to this request.)
 
 PROCESS (in order):
 
@@ -110,19 +109,25 @@ function parseRange(s) {
   if (hi < lo) [lo, hi] = [hi, lo];
   return { lo, hi };
 }
+// Under $1 rounds to 5 cents, under $10 to 50 cents, then whole dollars.
 function roundMoney(n) {
-  if (n < 100) return Math.max(1, Math.round(n));
+  if (n < 1) return Math.max(0.05, Math.round(n * 20) / 20);
+  if (n < 10) return Math.round(n * 2) / 2;
+  if (n < 100) return Math.round(n);
   if (n < 1000) return Math.round(n / 5) * 5;
   return Math.round(n / 25) * 25;
 }
+// Formats like "35\u201350\u00a2", "50\u00a2\u2013$1.50", "$1.50\u20133", "$15\u201325".
 function fmtRange(lo, hi) {
-  const f = (n) => "$" + n.toLocaleString("en-US");
-  return lo === hi ? f(lo) : f(lo) + "\u2013" + hi.toLocaleString("en-US");
+  const cents = (n) => Math.round(n * 100) + "\u00a2";
+  const dollars = (n) => (n % 1 ? n.toFixed(2) : n.toLocaleString("en-US"));
+  if (hi < 1) return lo === hi ? cents(lo) : Math.round(lo * 100) + "\u2013" + cents(hi);
+  if (lo < 1) return cents(lo) + "\u2013$" + dollars(hi);
+  return lo === hi ? "$" + dollars(lo) : "$" + dollars(lo) + "\u2013" + dollars(hi);
 }
 function fixWholesale(valueStr, wsStr) {
   const r = parseRange(valueStr);
   if (!r || r.hi <= 0) return wsStr;
-  if (r.hi < 2) return "Under $1";
   const w = parseRange(wsStr);
   const bound = (retail, cand) => {
     const min = retail / 3, max = retail / 2;
@@ -199,10 +204,13 @@ export default async (req) => {
       ? `The transaction is in ZIP code ${zip}. For COMMON LOCAL-MARKET items, you MUST factor this location's cost-of-living and buyer affluence into the price and let it MOVE the number meaningfully: a high-income / high-cost metro ZIP (e.g. Beverly Hills 90210, Manhattan, San Francisco) supports notably HIGHER local resale prices — buyers there pay more for furniture, décor, patio, and lifestyle goods; a rural or low-income ZIP (e.g. small-town Georgia) pulls local prices DOWN. State this influence briefly in the reasoning (e.g. "priced up for the high-demand [metro] market"). This applies ONLY to local-market items — for national collectibles the ZIP is irrelevant and should not change the price.`
       : "No ZIP given. Price common local goods at general US yard-sale/resale levels.";
 
-    const system = SYSTEM_PROMPT.replace("__MODE_LINE__", modeLine).replace(
-      "__ZIP_LINE__",
-      zipLine
-    );
+    // System prompt in two blocks: the long fixed instructions (identical on
+    // every valuation, so they are cached and billed at ~10% when reused within
+    // 5 minutes), then the per-request user context (mode + ZIP), which varies.
+    const system = [
+      { type: "text", text: SYSTEM_PROMPT, cache_control: { type: "ephemeral" } },
+      { type: "text", text: "USER CONTEXT:\n" + modeLine + (zipLine ? "\n" + zipLine : "") },
+    ];
 
     const countLine =
       photos.length > 1
@@ -340,8 +348,12 @@ export default async (req) => {
       const u = data.usage || {};
       const inTok = u.input_tokens || 0;
       const outTok = u.output_tokens || 0;
+      // Cached input bills separately: writes at $3.75/M, reads at $0.30/M
+      // (Sonnet 4.6). Without these the meter would undercount.
+      const cacheWrite = u.cache_creation_input_tokens || 0;
+      const cacheRead = u.cache_read_input_tokens || 0;
       const searches = u.server_tool_use?.web_search_requests || 0;
-      const inCost = (inTok / 1_000_000) * 3.0;
+      const inCost = (inTok / 1_000_000) * 3.0 + (cacheWrite / 1_000_000) * 3.75 + (cacheRead / 1_000_000) * 0.30;
       const outCost = (outTok / 1_000_000) * 15.0;
       const searchCost = searches * 0.01;
       // Triage call (Haiku 4.5: $1/M input, $5/M output). Zero on a
@@ -352,6 +364,8 @@ export default async (req) => {
       const total = inCost + outCost + searchCost + triageCost;
       costInfo = {
         inputTokens: inTok,
+        cacheWriteTokens: cacheWrite,
+        cacheReadTokens: cacheRead,
         outputTokens: outTok,
         searches,
         inCost: +inCost.toFixed(4),
