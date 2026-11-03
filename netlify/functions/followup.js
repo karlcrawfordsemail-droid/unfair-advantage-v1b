@@ -123,10 +123,10 @@ export default async (req) => {
       "\"result\": <if mode is revalue, a FULL updated valuation object with the same fields as before: " +
       "id, itemType (Local, Collectible, or SpecificBuyer), confidence, value, walkAway, scenarios (each with condition, value, walkAway), reasoning, cantVerify; otherwise null> }\n" +
       "When re-valuing, keep the same honest, realized-price, reasoned methodology. State what changed and why.\n" +
-      "RULES WHEN RE-VALUING: value = retail range, the realistic SOLD range for the most likely reading of the item; when the pricier reading is unconfirmed, use the common/lower reading and put the pricier one in an 'If ...' scenario (scenarios may sit outside the headline). " +
+      "RULES WHEN RE-VALUING: value = retail range: what the item realistically SELLS for at a dealer's shop or booth, or online at a sold price — not a yard-sale price and not an asking price. Price the visible form, period, and condition at full honest value; leave out only UNCONFIRMED premiums (maker, authenticity, rarity, precious material) and put those in an 'If ...' scenario (scenarios may sit outside the headline). Never anchor on a single comp. " +
       "walkAway = wholesale, what a reseller should pay: each end is one-third to one-half of the matching retail end, about one-half for easy, fast sellers and about one-third for slow, bulky, niche, or low-dollar items. " +
-      "itemType is Collectible only with an identifiable maker or a recognized collector category; plain household goods, even old ones, are Local. " +
-      "Do not state a maker, date, or material (solid brass, sterling) as fact without a visible mark or the user's confirmation. " +
+      "itemType is the best market: Collectible only with an identifiable maker or a recognized collector category; bulky furniture and plain household goods, even old ones, are Local. " +
+      "Date the item from visible evidence and name the clues. Do not state a maker or material (solid brass, sterling) as fact without a visible mark or the user's confirmation. " +
       "The user's stated facts about the item are authoritative.";
 
     const userText =

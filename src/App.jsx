@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 
 // App version — bump on every deploy so the running site shows which build is live.
-const APP_VERSION = "v1B.40";
+const APP_VERSION = "v1B.41";
 
 /* ============================================================================
    UNFAIR ADVANTAGE — v1B
@@ -25,7 +25,6 @@ const REQUIRE_FEEDBACK = true;
 // something different. Chip answers keep it one-tap.
 const ROTATING_QUESTIONS = [
   { key: "id_correct",   q: "Was the identification correct?",              chips: ["Yes", "Close", "No"] },
-  { key: "price_dir",    q: "Did the price feel…",                          chips: ["Too high", "About right", "Too low"] },
   { key: "reasoning",    q: "Was the reasoning convincing?",                chips: ["Yes", "Somewhat", "No"] },
   { key: "trust_sell",   q: "Would you trust this to price it for sale?",   chips: ["Yes", "Maybe", "No"] },
   { key: "surprise",     q: "Did anything about this one surprise you?",    chips: ["No", "A little", "Yes"] },
@@ -809,6 +808,10 @@ export default function App() {
         zip: zip.trim(),
       };
       if (forceLane) startBody.forceLane = forceLane;
+      // Owner model test: ?model=s55 runs this valuation on Sonnet 5.5.
+      try {
+        if (new URLSearchParams(window.location.search).get("model") === "s55") startBody.modelTest = "s55";
+      } catch { /* ignore */ }
       if (clarification) { startBody.clarification = clarification; startBody.priorKlass = priorKlass || null; }
 
       const start = await fetch("/.netlify/functions/start-valuation-background", {
@@ -1320,7 +1323,7 @@ export default function App() {
             <div className="value-only" style={{ background: "#eef4f0" }}>
               {costInfo && <div>cost: ${Number(costInfo.total).toFixed(4)} &middot; in {costInfo.inputTokens} / out {costInfo.outputTokens} &middot; {costInfo.searches} search{costInfo.searches === 1 ? "" : "es"}</div>}
               {costInfo && (costInfo.cacheWriteTokens != null) && <div>cache: write {costInfo.cacheWriteTokens} / read {costInfo.cacheReadTokens}</div>}
-              {costInfo && costInfo.triageModel && <div>triage: {costInfo.triageModel} &middot; ${Number(costInfo.triageCost || 0).toFixed(4)} &middot; valuation (Sonnet): ${Number(costInfo.valuationCost || 0).toFixed(4)}</div>}
+              {costInfo && costInfo.triageModel && <div>triage: {costInfo.triageModel} &middot; ${Number(costInfo.triageCost || 0).toFixed(4)} &middot; valuation ({costInfo.valuationModel || "claude-sonnet-4-6"}): ${Number(costInfo.valuationCost || 0).toFixed(4)}</div>}
               {timing && <div>time: {(timing.totalMs / 1000).toFixed(1)}s total &middot; triage {(timing.triageMs / 1000).toFixed(1)}s &middot; valuation {(timing.valuationMs / 1000).toFixed(1)}s &middot; lane {timing.lane}</div>}
             </div>
           )}
@@ -1561,9 +1564,9 @@ function FeedbackGate({ fb, setFb, onSubmit, count }) {
       <p className="feedback-sub">Two taps unlock your next valuation.</p>
 
       <div className="fq">
-        <div className="q">Does the price look about right?</div>
+        <div className="q">How does the price look?</div>
         <div className="chip-row">
-          {["Yes", "Not sure", "No"].map((v) => (
+          {["Too high", "About right", "Too low", "Not sure"].map((v) => (
             <button key={v} className={"chip" + (fb.reliable === v ? " sel" : "")} onClick={() => pick("reliable", v)}>{v}</button>
           ))}
         </div>
