@@ -48,6 +48,17 @@ function fixWholesale(valueStr, wsStr) {
   if (lo > hi) lo = hi;
   return fmtRange(lo, hi);
 }
+// --- Best-market label, decided in code from the two facts the model reports ---
+// A bulky item is always Local; Collectible needs a real collector premium.
+function enforceMarket(p) {
+  if (!p || typeof p !== "object") return;
+  if (p.itemType === "SpecificBuyer") return;
+  if (p.bulky === true) { p.itemType = "Local"; return; }
+  if (p.collectorPremium === true) { p.itemType = "Collectible"; return; }
+  if (p.collectorPremium === false) { p.itemType = "Local"; return; }
+  // Facts missing (older result): keep the model's label but never Collectible for bulky-sounding text.
+}
+
 function enforceWholesale(p) {
   if (!p || typeof p !== "object") return;
   if (p.value) {
@@ -121,11 +132,12 @@ export default async (req) => {
       "Respond with ONLY valid JSON, no markdown, in this shape:\n" +
       "{ \"mode\": \"answer\" | \"revalue\", \"reply\": \"<your conversational answer to the user, 1-4 sentences>\", " +
       "\"result\": <if mode is revalue, a FULL updated valuation object with the same fields as before: " +
-      "id, itemType (Local, Collectible, or SpecificBuyer), confidence, value, walkAway, scenarios (each with condition, value, walkAway), reasoning, cantVerify; otherwise null> }\n" +
+      "id, bulky (true/false), collectorPremium (true/false), itemType (Local, Collectible, or SpecificBuyer), confidence, value, walkAway, scenarios (each with condition, value, walkAway), reasoning, cantVerify; otherwise null> }\n" +
       "When re-valuing, keep the same honest, realized-price, reasoned methodology. State what changed and why.\n" +
       "RULES WHEN RE-VALUING: value = retail range: what the item realistically SELLS for at a dealer's shop or booth, or online at a sold price — not a yard-sale price and not an asking price. Price the visible form, period, and condition at full honest value; leave out only UNCONFIRMED premiums (maker, authenticity, rarity, precious material) and put those in an 'If ...' scenario (scenarios may sit outside the headline). Never anchor on a single comp. " +
       "walkAway = wholesale, what a reseller should pay: each end is one-third to one-half of the matching retail end, about one-half for easy, fast sellers and about one-third for slow, bulky, niche, or low-dollar items. " +
-      "itemType is the best market: Collectible only with an identifiable maker or a recognized collector category; bulky furniture and plain household goods, even old ones, are Local. " +
+      "bulky = true if the item is large, heavy, or fragile enough that shipping is impractical or costly (furniture, floor clocks, commercial equipment). collectorPremium = true only if an online collector market reliably pays clearly more than a local shop or booth, after shipping and fees. itemType is Local if bulky is true or collectorPremium is false; Collectible only when bulky is false and collectorPremium is true. " +
+      "Never deduct shipping from a local shop or booth price. A price tag in the photo is an asking price, not evidence of value. Label every cited price as sold or asking with its source type, and do not cite a price you did not find. Do not invent a new-retail price for an item no longer sold new. State production years, discontinued status, parts availability, or rarity as fact only if you found a source; otherwise mark it unconfirmed. " +
       "Date the item from visible evidence and name the clues. Do not state a maker or material (solid brass, sterling) as fact without a visible mark or the user's confirmation. " +
       "The user's stated facts about the item are authoritative.";
 
@@ -177,7 +189,7 @@ export default async (req) => {
       return new Response("followup done (fallback)");
     }
 
-    if (parsed.mode === "revalue" && parsed.result) enforceWholesale(parsed.result);
+    if (parsed.mode === "revalue" && parsed.result) { enforceWholesale(parsed.result); enforceMarket(parsed.result); }
     await store.setJSON(jobId, {
       status: "followup_done",
       followup: {

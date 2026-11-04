@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 
 // App version — bump on every deploy so the running site shows which build is live.
-const APP_VERSION = "v1B.41";
+const APP_VERSION = "v1B.42";
 
 /* ============================================================================
    UNFAIR ADVANTAGE — v1B
@@ -1454,7 +1454,7 @@ function ResultView({ result }) {
 
   // "Best market" is derived from itemType when present (Local / Collectible / SpecificBuyer).
   const marketMap = {
-    Local: "Local buyers \u2014 Facebook Marketplace, yard sale, local pickup",
+    Local: "Local buyers \u2014 antique mall booth, local dealer, Facebook Marketplace",
     Collectible: "Collector market \u2014 eBay, specialist buyers, auction",
     SpecificBuyer: "A specific buyer \u2014 this sells best to the right person",
   };
