@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 
 // App version — bump on every deploy so the running site shows which build is live.
-const APP_VERSION = "v1B.42";
+const APP_VERSION = "v1B.43";
 
 /* ============================================================================
    UNFAIR ADVANTAGE — v1B
@@ -380,6 +380,7 @@ textarea#notes:focus, input#zip:focus{ outline:2px solid #b7a6e6; outline-offset
   font-size:.72rem; font-weight:800; color:var(--accent); margin-bottom:10px;
 }
 .retail-label{ font-family:var(--font-display); font-size:.8rem; font-weight:700; color:rgba(255,255,255,.72); }
+.retail-note{ font-size:.82rem; font-style:italic; color:rgba(255,255,255,.72); margin-top:4px; margin-bottom:6px; line-height:1.35; }
 .retail-price{ font-family:var(--font-display); font-weight:900; font-size:3.1rem; line-height:1; letter-spacing:-.03em; margin:2px 0 12px; }
 .wholesale-line{
   display:flex; align-items:baseline; gap:8px; padding-top:12px;
@@ -808,9 +809,10 @@ export default function App() {
         zip: zip.trim(),
       };
       if (forceLane) startBody.forceLane = forceLane;
-      // Owner model test: ?model=s55 runs this valuation on Sonnet 5.5.
+      // Owner model test: ?model=s46 runs this valuation on Sonnet 4.6
+      // (the default is Sonnet 5.5).
       try {
-        if (new URLSearchParams(window.location.search).get("model") === "s55") startBody.modelTest = "s55";
+        if (new URLSearchParams(window.location.search).get("model") === "s46") startBody.modelTest = "s46";
       } catch { /* ignore */ }
       if (clarification) { startBody.clarification = clarification; startBody.priorKlass = priorKlass || null; }
 
@@ -1464,8 +1466,9 @@ function ResultView({ result }) {
     <>
       <section className="price-hero">
         <div className="price-kicker">Estimated value</div>
-        <div className="retail-label">Retail range</div>
+        <div className="retail-label">Most likely retail range</div>
         <div className="retail-price">{retail}</div>
+        <div className="retail-note">Condition, markings, and other details can move this price. See below.</div>
         <div className="wholesale-line">
           <span className="wholesale-label">Wholesale (what to pay)</span>
           <span className="wholesale-value">{wholesale}</span>

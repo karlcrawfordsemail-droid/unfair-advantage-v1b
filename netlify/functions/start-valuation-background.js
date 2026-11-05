@@ -324,9 +324,10 @@ export default async (req) => {
       : "";
     const userTextFinal = `${klassLine}\n\n${userText}${clarLine}`;
 
-    // Owner side-by-side test: ?model=s55 in the app URL runs the valuation on
-    // Sonnet 5.5 instead of the default. Rates are per million tokens.
-    const useS55 = modelTest === "s55";
+    // Default model is Sonnet 5.5 (v1B.43). Owner comparison test: ?model=s46
+    // in the app URL runs the valuation on Sonnet 4.6 instead. Rates are per
+    // million tokens.
+    const useS55 = modelTest !== "s46";
     const model = useS55 ? "claude-sonnet-5-5" : "claude-sonnet-4-6";
     const RATE_IN = useS55 ? 2.0 : 3.0;
     const RATE_OUT = useS55 ? 10.0 : 15.0;
