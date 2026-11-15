@@ -20,6 +20,9 @@ export default async (req) => {
       valuation_num: Number.isFinite(body.valuation_num) ? body.valuation_num : null,
       item: (body.item || "").slice(0, 300),   // optional: what it was valued at / desc
       version: body.version || "",
+      kind: (body.kind || "valuation").slice(0, 20),   // "valuation" survey or "general" message
+      email: (body.email || "").slice(0, 200),
+      plan: (body.plan || "").slice(0, 20),
     };
     await store.setJSON(id, record);
     return new Response(JSON.stringify({ ok: true }), {

@@ -5,6 +5,7 @@
 // polls /result for the stored answer.
 
 import { getStore } from "@netlify/blobs";
+import { authorizeJob, settleJob } from "../lib/allowance.js";
 
 const SYSTEM_PROMPT = `You are an expert antiques and resale appraiser. You evaluate items the way a seasoned dealer does. You have a web search tool — use it as section 3 directs.
 
@@ -174,7 +175,18 @@ function enforceWholesale(p) {
 
 export default async (req) => {
   let jobId;
-  const store = getStore("valuations");
+  // Wraps the job store: when a job ends, the valuation is kept (price
+  // delivered) or given back (error or no item found). See settleJob.
+  const jobStore = getStore("valuations");
+  const store = {
+    setJSON: async (key, value) => {
+      await jobStore.setJSON(key, value);
+      const st = value && value.status;
+      if (key === jobId && (st === "done" || st === "error" || st === "no_item")) {
+        await settleJob(jobId, st === "done" ? "success" : st, value.error || value.message || "");
+      }
+    },
+  };
   // --- Stage timing (owner-only, to find the real speed bottleneck) ---
   const T0 = Date.now();
   const timing = { triageMs: 0, valuationMs: 0, totalMs: 0 };
@@ -190,6 +202,14 @@ export default async (req) => {
 
     if (!jobId) {
       return new Response("missing jobId");
+    }
+
+    // Every new valuation needs a ticket from usage.js (one valuation used).
+    // Answers to a clarifying question continue the already-approved job.
+    const approved = await authorizeJob({ jobId, ticket: body.ticket, isResume: !!clarification });
+    if (!approved) {
+      await store.setJSON(jobId, { status: "limit" });
+      return new Response("not authorized");
     }
 
     // Mark as running right away so the poller sees progress

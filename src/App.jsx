@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 
 // App version — bump on every deploy so the running site shows which build is live.
-const APP_VERSION = "v1B.43";
+const APP_VERSION = "v1B.44";
 
 /* ============================================================================
    UNFAIR ADVANTAGE — v1B
@@ -14,7 +14,11 @@ const APP_VERSION = "v1B.43";
    ========================================================================== */
 
 const MAX_PHOTOS = 5;
-const FREE_LIMIT = 20; // Tester round: 20 valuations for known home testers
+// Free use and plans are decided on the server (netlify/lib/allowance.js):
+// 1 free valuation with no sign-in, 2 more after entering an email, then the
+// Basic plan. Shown on screen only — changing these does not change the rules.
+const BASIC_PRICE = "$9.99";
+const BASIC_LIMIT = 25;
 // Testing: require quick feedback before the next valuation unlocks.
 // Set to false at launch — the follow-up stays, feedback becomes optional/gone.
 const REQUIRE_FEEDBACK = true;
@@ -69,6 +73,21 @@ function getAccessKey() {
   } catch {
     return "";
   }
+}
+
+// Sign-in session (set after the 6-digit email code is accepted).
+function getToken() { try { return localStorage.getItem("ua_session") || ""; } catch { return ""; } }
+function setToken(t) {
+  try { if (t) localStorage.setItem("ua_session", t); else localStorage.removeItem("ua_session"); } catch { /* ignore */ }
+}
+async function postJSON(path, body) {
+  const r = await fetch(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  let data = {};
+  try { data = await r.json(); } catch { /* empty */ }
+  return { ok: r.ok, data };
+}
+function fmtDate(iso) {
+  try { return new Date(iso).toLocaleDateString("en-US", { month: "long", day: "numeric" }); } catch { return ""; }
 }
 
 // Enter/Done on a one-line field closes the keyboard so the Price button shows.
@@ -468,6 +487,30 @@ textarea.fb-note{
 .limit-box h3{ font-family:var(--font-display); color:#7a4d0c; margin:0 0 6px; }
 .limit-box p{ font-size:.9rem; color:#5c4415; margin:0; font-weight:700; }
 .count-note{ text-align:center; font-size:.78rem; color:var(--muted); margin-top:14px; }
+.acct-line{ text-align:center; font-size:.78rem; color:var(--muted); margin-top:6px; line-height:1.6; }
+.link-btn{
+  background:none; border:none; padding:2px 4px; color:var(--deep); text-decoration:underline;
+  font-family:var(--font-body); font-size:inherit; font-weight:700; cursor:pointer;
+}
+.acct-box{
+  margin-top:20px; padding:22px 18px; background:var(--surface); border-radius:var(--radius-lg);
+  border:1.5px solid var(--line);
+}
+.acct-box h3{ font-family:var(--font-display); color:var(--deep); margin:0 0 6px; font-size:1.25rem; }
+.acct-box p{ font-size:.95rem; color:var(--ink); margin:0 0 14px; line-height:1.45; }
+.acct-input{
+  width:100%; border:1.5px solid var(--line); border-radius:12px; padding:13px 12px;
+  font-family:var(--font-body); font-size:1.05rem; background:#fff; margin-bottom:12px;
+}
+.acct-input.code{ font-family:var(--font-display); font-size:1.5rem; letter-spacing:.3em; text-align:center; }
+.acct-box .primary-button{ width:100%; margin:0; }
+.acct-box .primary-button:disabled{ opacity:.55; cursor:default; }
+.acct-links{ display:flex; justify-content:space-between; gap:8px; margin-top:12px; font-size:.86rem; }
+.plan-price{ font-family:var(--font-display); font-weight:900; font-size:2.2rem; color:var(--deep); line-height:1; }
+.plan-price small{ font-size:1rem; font-weight:700; color:var(--muted); }
+.plan-detail{ margin:8px 0 16px !important; }
+.notice{ background:var(--blue-soft); border:1.5px solid #b9d6e4; color:var(--blue); border-radius:var(--radius-md);
+  padding:12px 14px; font-size:.9rem; font-weight:700; margin-bottom:14px; }
 `;
 
 /* ---- wait-message tracks (kept lightweight; engine unchanged) ---------- */
@@ -530,11 +573,22 @@ export default function App() {
   const [timing, setTiming] = useState(null);
   const [consent, setConsent] = useState(null); // { jobId, photoCount }
 
-  const [count, setCount] = useState(0); // valuations used on this device (synced from server on load)
-  const [unlimited, setUnlimited] = useState(false); // valid personal key on this device
-  const [family, setFamily] = useState(false); // friends-and-family key on this device
-  const [usageLoaded, setUsageLoaded] = useState(false);
-  const capped = !unlimited && count >= FREE_LIMIT;
+  const [count, setCount] = useState(0); // valuations completed this visit (rotates the feedback questions)
+  // What this person can do, from the server: { mode, remaining, limit, needs, email, ... }
+  const [acct, setAcct] = useState(null);
+  const usageLoaded = !!acct;
+  const unlimited = !!(acct && acct.unlimited);
+  const family = !!(acct && acct.family);
+  const capped = !!(acct && !acct.unlimited && acct.remaining === 0);
+  const ticketRef = useRef(null);
+  const [signin, setSignin] = useState({ step: "email", email: "", code: "", busy: false, err: "", reason: "free" });
+  const [planBusy, setPlanBusy] = useState(false);
+  const [planErr, setPlanErr] = useState("");
+  const [notice, setNotice] = useState("");
+  // Paying subscribers can answer the survey but are never required to.
+  const feedbackRequired = REQUIRE_FEEDBACK && !(acct && acct.mode === "subscriber");
+  const [fbFree, setFbFree] = useState({ text: "", sent: false, busy: false });
+  const prevPhaseRef = useRef("capture");
   const [needsFeedback, setNeedsFeedback] = useState(false);
   const [fb, setFb] = useState({ reliable: null, rot: null, note: "" });
 
@@ -578,22 +632,144 @@ export default function App() {
 
   // On load: read the real used-count (and key status) from the server so the
   // remaining-count note is correct across visits, not reset each time.
+  const refreshAccount = async () => {
+    try {
+      const { data: u } = await postJSON("/.netlify/functions/usage", {
+        deviceId: getDeviceId(), key: getAccessKey(), token: getToken(), action: "check",
+      });
+      if (u && u.mode) {
+        // A token the server no longer recognizes means signed out.
+        if (getToken() && !u.email && u.mode === "anon") setToken("");
+        setAcct(u);
+        return u;
+      }
+    } catch (e) { /* non-fatal */ }
+    setAcct((a) => a || { mode: "anon", remaining: null });
+    return null;
+  };
+
   useEffect(() => {
     (async () => {
+      // Back from Stripe's payment page?
+      let checkout = null;
       try {
-        const r = await fetch("/.netlify/functions/usage", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ deviceId: getDeviceId(), key: getAccessKey(), action: "check" }),
-        });
-        const u = await r.json();
-        if (u && u.unlimited) setUnlimited(true);
-        if (u && u.family) setFamily(true);
-        if (u && typeof u.used === "number") setCount(u.used);
-      } catch (e) { /* non-fatal: note just shows the default */ }
-      setUsageLoaded(true);
+        const params = new URLSearchParams(window.location.search);
+        checkout = params.get("checkout");
+        if (checkout) {
+          params.delete("checkout");
+          const qs = params.toString();
+          window.history.replaceState(null, "", window.location.pathname + (qs ? "?" + qs : ""));
+        }
+      } catch { /* ignore */ }
+      const u = await refreshAccount();
+      if (checkout === "cancel") setNotice("Payment canceled. You weren't charged.");
+      if (checkout === "success" && !(u && u.mode === "subscriber")) {
+        // Stripe confirms the payment to the server a few seconds after it goes through.
+        setNotice("Payment received. Turning on your subscription\u2026");
+        for (let i = 0; i < 20; i++) {
+          await sleep(2000);
+          const v = await refreshAccount();
+          if (v && v.mode === "subscriber") break;
+        }
+      }
+      if (checkout === "success") {
+        const v = await refreshAccount();
+        setNotice(v && v.mode === "subscriber"
+          ? `Your subscription is on. You have ${v.remaining} valuations this month.`
+          : "Payment received. If your valuations don't show yet, reload the page in a minute.");
+      }
     })();
   }, []);
+
+  // A valuation that never started gives its count back (the server only
+  // allows this for a ticket no job has used). Failed jobs are given back by
+  // the server itself; this refreshes the count shown either way.
+  const releaseTicket = async () => {
+    const t = ticketRef.current;
+    ticketRef.current = null;
+    try {
+      if (t) await postJSON("/.netlify/functions/usage", { deviceId: getDeviceId(), key: getAccessKey(), token: getToken(), action: "release", ticket: t });
+    } catch { /* ignore */ }
+    refreshAccount();
+  };
+
+  const sendGeneralFeedback = async () => {
+    const text = fbFree.text.trim();
+    if (!text || fbFree.busy) return;
+    setFbFree((f) => ({ ...f, busy: true }));
+    try {
+      await postJSON("/.netlify/functions/feedback", {
+        kind: "general", change: text, version: APP_VERSION,
+        email: acct && acct.email ? acct.email : "", plan: acct ? acct.mode : "",
+      });
+      setFbFree({ text: "", sent: true, busy: false });
+    } catch {
+      setFbFree((f) => ({ ...f, busy: false }));
+    }
+  };
+  const openFeedback = () => { prevPhaseRef.current = phase; setFbFree({ text: "", sent: false, busy: false }); setPhase("feedback"); };
+
+  // Sends the person to the right screen when they're out of valuations.
+  const routeNeeds = (needs) => {
+    if (needs === "signin") { setSignin((s) => ({ ...s, step: "email", code: "", err: "", reason: "free" })); setPhase("signin"); }
+    else if (needs === "subscribe" || needs === "month_done") { setPlanErr(""); setPhase("subscribe"); }
+    else setPhase("limit");
+  };
+
+  const sendCode = async () => {
+    const email = signin.email.trim();
+    if (!email || signin.busy) return;
+    setSignin((s) => ({ ...s, busy: true, err: "" }));
+    try {
+      const { ok, data } = await postJSON("/.netlify/functions/auth-start", { email });
+      if (!ok) { setSignin((s) => ({ ...s, busy: false, err: data.error || "Couldn't send the code. Try again." })); return; }
+      setSignin((s) => ({ ...s, busy: false, step: "code", code: "", err: "" }));
+    } catch {
+      setSignin((s) => ({ ...s, busy: false, err: "Couldn't reach the server. Check your connection." }));
+    }
+  };
+
+  const checkCode = async () => {
+    if (signin.code.replace(/\D/g, "").length !== 6 || signin.busy) return;
+    setSignin((s) => ({ ...s, busy: true, err: "" }));
+    try {
+      const { ok, data } = await postJSON("/.netlify/functions/auth-verify", { email: signin.email.trim(), code: signin.code });
+      if (!ok || !data.token) { setSignin((s) => ({ ...s, busy: false, err: data.error || "That code didn't work." })); return; }
+      setToken(data.token);
+      const u = await refreshAccount();
+      setSignin((s) => ({ ...s, busy: false, step: "email", code: "" }));
+      if (u && u.allowed === false && u.needs && u.needs !== "signin") routeNeeds(u.needs);
+      else {
+        if (u && u.mode === "subscriber") setNotice(`Signed in. You have ${u.remaining} valuations left this month.`);
+        else if (u && u.remaining) setNotice(`Signed in. You have ${u.remaining} free valuation${u.remaining === 1 ? "" : "s"}.`);
+        setPhase("capture");
+      }
+    } catch {
+      setSignin((s) => ({ ...s, busy: false, err: "Couldn't reach the server. Check your connection." }));
+    }
+  };
+
+  const openSignin = () => {
+    setSignin({ step: "email", email: "", code: "", busy: false, err: "", reason: "voluntary" });
+    setPhase("signin");
+  };
+
+  const accountAction = async (action) => {
+    setPlanBusy(true); setPlanErr("");
+    try {
+      const { ok, data } = await postJSON("/.netlify/functions/account", { token: getToken(), action });
+      if (data && data.signedOut) { setToken(""); await refreshAccount(); setPlanBusy(false); routeNeeds("signin"); return; }
+      if (!ok) { setPlanErr(data.error || "Something went wrong. Try again."); setPlanBusy(false); return; }
+      if (action === "signout") {
+        setToken(""); await refreshAccount(); setPlanBusy(false); setNotice("Signed out."); setPhase("capture"); return;
+      }
+      if (data.url) { window.location.href = data.url; return; }
+      setPlanBusy(false);
+    } catch {
+      setPlanErr("Couldn't reach the server. Check your connection.");
+      setPlanBusy(false);
+    }
+  };
 
   /* ---- wait-message cycling ---- */
   const startTrack = (klass) => {
@@ -808,6 +984,7 @@ export default function App() {
         notes: assembledNotes,
         zip: zip.trim(),
       };
+      if (ticketRef.current) startBody.ticket = ticketRef.current;
       if (forceLane) startBody.forceLane = forceLane;
       // Owner model test: ?model=s46 runs this valuation on Sonnet 4.6
       // (the default is Sonnet 5.5).
@@ -854,10 +1031,20 @@ export default function App() {
           finish(pd);
           return;
         }
+        if (pd.status === "limit") {
+          stopTrack();
+          const v = await refreshAccount();
+          setPhase("capture");
+          if (v && v.allowed === false) routeNeeds(v.needs);
+          else setError("Couldn't start the valuation. Try again.");
+          return;
+        }
         if (pd.status === "no_item") {
           // Not an error — the model correctly found nothing to value.
           // Return to capture with photos intact and a calm message.
           stopTrack();
+          ticketRef.current = null;
+          refreshAccount();
           setError(pd.message || "I couldn't find a sellable item in this photo — try a clear, well-lit shot of the object itself.");
           setPhase("capture");
           return;
@@ -886,7 +1073,7 @@ export default function App() {
     setTiming(pd.timing || null);
     setConsent(null);
     setCount((c) => c + 1);
-    // Feedback gate: required before the next valuation unlocks, and cap at FREE_LIMIT.
+    // Feedback gate: required before the next valuation unlocks.
     setFb({ reliable: null, rot: null, note: "" });
     setNeedsFeedback(true);
     setPhase("result");
@@ -894,6 +1081,7 @@ export default function App() {
 
   const fail = (msg) => {
     stopTrack();
+    releaseTicket();
     setError(msg);
     setPhase("capture");
   };
@@ -959,20 +1147,21 @@ export default function App() {
     if (!canPrice) return;
     // Server-side cap: consume one credit before running. Count lives in
     // Blobs keyed to a device id, so clearing browser storage can't reset it.
+    // The server also checks the ticket, so this can't be skipped.
+    setNotice("");
+    let u;
     try {
-      const r = await fetch("/.netlify/functions/usage", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ deviceId: getDeviceId(), key: getAccessKey(), action: "consume" }),
-      });
-      const u = await r.json();
-      setUnlimited(!!(u && u.unlimited));
-      setFamily(!!(u && u.family));
-      if (u && u.allowed === false) { setPhase("limit"); return; }
+      ({ data: u } = await postJSON("/.netlify/functions/usage", {
+        deviceId: getDeviceId(), key: getAccessKey(), token: getToken(), action: "consume",
+      }));
     } catch (e) {
-      // If the usage service is unreachable, fail OPEN (let them value) —
-      // better a rare free extra than blocking a paying tester on a hiccup.
+      setError("Couldn't reach the server. Check your connection and try again.");
+      return;
     }
+    if (!u || u.error) { setError("Couldn't start the valuation. Try again."); return; }
+    if (u.allowed === false) { setAcct(u); routeNeeds(u.needs); return; }
+    ticketRef.current = u.ticket || null;
+    setAcct(u);
     runPipeline({});
   };
 
@@ -1010,7 +1199,7 @@ export default function App() {
     setTiming(null);
     setNeedsFeedback(false);
     try { window.scrollTo({ top: 0, behavior: "auto" }); } catch (e) { /* non-fatal */ }
-    if (capped) setPhase("limit");
+    if (capped) routeNeeds(acct.needs || acct.needsNext);
     else setPhase("capture");
   };
 
@@ -1093,6 +1282,7 @@ export default function App() {
       {/* -------------------- CAPTURE -------------------- */}
       {phase === "capture" && (
         <div className="screen" style={{ paddingBottom: canPrice ? 88 : undefined }}>
+          {notice && <div className="notice">{notice}</div>}
           {chooserSlot !== null && (
             <div className="chooser-backdrop" onClick={() => setChooserSlot(null)}>
               <div className="chooser-sheet" onClick={(e) => e.stopPropagation()}>
@@ -1260,15 +1450,38 @@ export default function App() {
           </section>
 
           {usageLoaded && (
-            <div className="count-note">
-              {unlimited
-                ? "Unlimited access"
-                : count === 0
-                  ? `Test round: ${FREE_LIMIT} free valuations`
-                  : FREE_LIMIT - count > 0
-                    ? `${FREE_LIMIT - count} of ${FREE_LIMIT} remaining`
-                    : "All test valuations used"}
-            </div>
+            <>
+              <div className="count-note">
+                {unlimited
+                  ? "Unlimited access"
+                  : acct.remaining == null
+                    ? ""
+                    : acct.mode === "subscriber"
+                      ? `${acct.remaining} of ${acct.limit} left this month`
+                      : family
+                        ? `${acct.remaining} of ${acct.limit} remaining`
+                        : `${acct.remaining} free valuation${acct.remaining === 1 ? "" : "s"} left`}
+              </div>
+              <div className="acct-line">
+                <button className="link-btn" onClick={openFeedback}>Send feedback about the app</button>
+              </div>
+              {!unlimited && !family && (
+                <div className="acct-line">
+                  {acct.email ? (
+                    <>
+                      Signed in as {acct.email}
+                      <br />
+                      {(acct.mode === "subscriber" || acct.hasCustomer) && (
+                        <button className="link-btn" disabled={planBusy} onClick={() => accountAction("manage")}>Manage subscription</button>
+                      )}
+                      <button className="link-btn" disabled={planBusy} onClick={() => accountAction("signout")}>Sign out</button>
+                    </>
+                  ) : (
+                    <>Have a subscription? <button className="link-btn" onClick={openSignin}>Sign in</button></>
+                  )}
+                </div>
+              )}
+            </>
           )}
 
           {canPrice && (
@@ -1372,9 +1585,9 @@ export default function App() {
             </div>
           )}
 
-          {needsFeedback && REQUIRE_FEEDBACK && (
+          {needsFeedback && (
             <div ref={feedbackRef} className={flashFeedback ? "flash-attention" : ""}>
-              <FeedbackGate fb={fb} setFb={setFb} onSubmit={submitFeedback} count={count} />
+              <FeedbackGate fb={fb} setFb={setFb} onSubmit={submitFeedback} count={count} optional={!feedbackRequired} />
             </div>
           )}
 
@@ -1388,7 +1601,7 @@ export default function App() {
             <button
               className="dual-btn dual-next"
               onClick={() => {
-                if (REQUIRE_FEEDBACK && needsFeedback) {
+                if (feedbackRequired && needsFeedback) {
                   // Locked on feedback — scroll it into view, THEN flash it,
                   // since the survey is often below the fold on the result screen.
                   feedbackRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -1402,9 +1615,137 @@ export default function App() {
               }}
             >
               {capped
-                ? "Done"
-                : (REQUIRE_FEEDBACK && needsFeedback ? "Answer Survey to Continue" : "New item")}
+                ? "Continue"
+                : (feedbackRequired && needsFeedback ? "Answer Survey to Continue" : "New item")}
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* -------------------- SIGN IN (email + 6-digit code) -------------------- */}
+      {phase === "signin" && (
+        <div className="screen">
+          <div className="acct-box">
+            {signin.step === "email" ? (
+              <>
+                {signin.reason === "free" ? (
+                  <>
+                    <h3>Get 2 more free valuations</h3>
+                    <p>Enter your email and we'll send you a 6-digit code. No password needed. Already subscribed? Use that email to sign in.</p>
+                  </>
+                ) : (
+                  <>
+                    <h3>Sign in</h3>
+                    <p>Enter the email you use with Unfair Advantage. We'll send you a 6-digit code.</p>
+                  </>
+                )}
+                <input
+                  className="acct-input" type="email" inputMode="email" autoComplete="email"
+                  placeholder="you@example.com" value={signin.email}
+                  onChange={(e) => setSignin((s) => ({ ...s, email: e.target.value, err: "" }))}
+                  onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); sendCode(); } }}
+                />
+                {signin.err && <div className="error-box">{signin.err}</div>}
+                <button className="primary-button" disabled={signin.busy || !signin.email.trim()} onClick={sendCode}>
+                  {signin.busy ? "Sending\u2026" : "Send code"}
+                </button>
+                {signin.reason !== "free" && (
+                  <div className="acct-links">
+                    <button className="link-btn" onClick={() => setPhase("capture")}>Cancel</button>
+                  </div>
+                )}
+              </>
+            ) : (
+              <>
+                <h3>Check your email</h3>
+                <p>Enter the 6-digit code we sent to {signin.email.trim()}. If it isn't in your inbox, check your spam folder.</p>
+                <input
+                  className="acct-input code" type="text" inputMode="numeric" autoComplete="one-time-code"
+                  maxLength={6} placeholder="000000" value={signin.code}
+                  onChange={(e) => setSignin((s) => ({ ...s, code: e.target.value.replace(/\D/g, "").slice(0, 6), err: "" }))}
+                  onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); checkCode(); } }}
+                />
+                {signin.err && <div className="error-box">{signin.err}</div>}
+                <button className="primary-button" disabled={signin.busy || signin.code.length !== 6} onClick={checkCode}>
+                  {signin.busy ? "Checking\u2026" : "Sign in"}
+                </button>
+                <div className="acct-links">
+                  <button className="link-btn" disabled={signin.busy} onClick={sendCode}>Send a new code</button>
+                  <button className="link-btn" disabled={signin.busy}
+                    onClick={() => setSignin((s) => ({ ...s, step: "email", code: "", err: "" }))}>Use a different email</button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* -------------------- GENERAL FEEDBACK (any time) -------------------- */}
+      {phase === "feedback" && (
+        <div className="screen">
+          <div className="acct-box">
+            {fbFree.sent ? (
+              <>
+                <h3>Feedback sent</h3>
+                <p>Thank you. Every message is read.</p>
+                <button className="primary-button" onClick={() => setPhase(prevPhaseRef.current || "capture")}>Back</button>
+              </>
+            ) : (
+              <>
+                <h3>Send feedback</h3>
+                <p>Tell us what works, what doesn't, or what you'd change.</p>
+                <textarea
+                  className="acct-input" style={{ minHeight: 130, resize: "vertical" }}
+                  value={fbFree.text} onChange={(e) => setFbFree((f) => ({ ...f, text: e.target.value }))}
+                />
+                <button className="primary-button" disabled={fbFree.busy || !fbFree.text.trim()} onClick={sendGeneralFeedback}>
+                  {fbFree.busy ? "Sending\u2026" : "Send feedback"}
+                </button>
+                <div className="acct-links">
+                  <button className="link-btn" onClick={() => setPhase(prevPhaseRef.current || "capture")}>Cancel</button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* -------------------- SUBSCRIBE / MONTH USED UP -------------------- */}
+      {phase === "subscribe" && (
+        <div className="screen">
+          <div className="acct-box">
+            {acct && acct.mode === "subscriber" ? (
+              <>
+                <h3>You've used this month's {acct.limit} valuations</h3>
+                <p>
+                  {acct.periodEnd
+                    ? `Your count resets on ${fmtDate(acct.periodEnd)}, when your subscription renews.`
+                    : "Your count resets when your subscription renews."}
+                </p>
+                {planErr && <div className="error-box">{planErr}</div>}
+                <button className="primary-button" disabled={planBusy} onClick={() => accountAction("manage")}>
+                  Manage subscription
+                </button>
+              </>
+            ) : (
+              <>
+                <h3>You've used your free valuations</h3>
+                <p>To keep pricing items, subscribe to Basic.</p>
+                <div className="plan-price">{BASIC_PRICE} <small>a month</small></div>
+                <p className="plan-detail">{BASIC_LIMIT} valuations a month. Cancel anytime.</p>
+                {planErr && <div className="error-box">{planErr}</div>}
+                <button className="primary-button" disabled={planBusy} onClick={() => accountAction("checkout")}>
+                  {planBusy ? "Opening payment page\u2026" : "Subscribe"}
+                </button>
+                <p style={{ marginTop: 12, marginBottom: 0, fontSize: ".82rem", color: "var(--muted)" }}>
+                  Payment is handled by Stripe. Signed in as {acct && acct.email}.
+                </p>
+              </>
+            )}
+            <div className="acct-links">
+              <button className="link-btn" onClick={() => setPhase("capture")}>Back</button>
+              <button className="link-btn" disabled={planBusy} onClick={() => accountAction("signout")}>Sign out</button>
+            </div>
           </div>
         </div>
       )}
@@ -1416,18 +1757,15 @@ export default function App() {
             {family ? (
               <>
                 <h3>Thank you for trying Unfair Advantage.</h3>
-                <p>You've used your {FREE_LIMIT} free valuations.</p>
+                <p>You've used your {acct && acct.limit} free valuations.</p>
                 <p style={{ marginTop: 12 }}>
                   A discounted family rate is coming soon. Karl will let you know when it's ready.
                 </p>
               </>
             ) : (
               <>
-                <h3>Thank you for testing Unfair Advantage.</h3>
-                <p>You've used all {FREE_LIMIT} test valuations.</p>
-                <p style={{ marginTop: 12 }}>
-                  We'll let you know when Unfair Advantage launches.
-                </p>
+                <h3>Thank you for trying Unfair Advantage.</h3>
+                <p>You've used your free valuations.</p>
               </>
             )}
             <p style={{ marginTop: 12, fontWeight: 600 }}>
@@ -1552,19 +1890,19 @@ function ResultView({ result }) {
 }
 
 /* ------------------------- Feedback gate ------------------------- */
-function FeedbackGate({ fb, setFb, onSubmit, count }) {
+function FeedbackGate({ fb, setFb, onSubmit, count, optional }) {
   // Rotate the second question by valuation number so it changes each time.
   const rot = ROTATING_QUESTIONS[(count - 1 + ROTATING_QUESTIONS.length) % ROTATING_QUESTIONS.length];
   // Written question only at checkpoints (every OPEN_ENDED_EVERY valuations).
   const showOpen = count % OPEN_ENDED_EVERY === 0;
   // Ready to continue once both the fixed check and the rotating one are answered.
-  const ready = fb.reliable !== null && fb.rot !== null;
+  const ready = optional ? (fb.reliable !== null || fb.rot !== null || !!fb.note.trim()) : (fb.reliable !== null && fb.rot !== null);
   const pick = (k, v) => setFb((p) => ({ ...p, [k]: v }));
 
   return (
     <div className="feedback-card">
       <h3>Quick check</h3>
-      <p className="feedback-sub">Two taps unlock your next valuation.</p>
+      <p className="feedback-sub">{optional ? "Optional. Your answers help us improve the tool." : "Two taps unlock your next valuation."}</p>
 
       <div className="fq">
         <div className="q">How does the price look?</div>
@@ -1584,7 +1922,7 @@ function FeedbackGate({ fb, setFb, onSubmit, count }) {
         </div>
       </div>
 
-      {showOpen && (
+      {(showOpen || optional) && (
         <div className="fq">
           <div className="q">What would make the tool better? <span style={{ fontWeight: 400, color: "#8a938f" }}>(optional)</span></div>
           <textarea className="fb-note" value={fb.note} onChange={(e) => setFb((p) => ({ ...p, note: e.target.value }))} placeholder={"Leave blank if nothing"} />
@@ -1592,7 +1930,7 @@ function FeedbackGate({ fb, setFb, onSubmit, count }) {
       )}
 
       <button className="primary-button" disabled={!ready} onClick={onSubmit}>
-        Submit &amp; continue
+        {optional ? "Send feedback" : <>Submit &amp; continue</>}
       </button>
     </div>
   );
