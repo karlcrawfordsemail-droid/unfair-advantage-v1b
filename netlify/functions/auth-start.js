@@ -18,7 +18,7 @@ export default async (req) => {
     if (!email) return json({ error: "Enter a valid email address." }, 400);
     if (!process.env.RESEND_API_KEY) return json({ error: "Sign-in isn't set up yet." }, 500);
 
-    const store = getStore("auth-codes");
+    const store = getStore({ name: "auth-codes", consistency: "strong" });
     const key = "e_" + email.replace(/[^a-z0-9@._+-]/g, "");
     const prev = (await getJSON(store, key)) || {};
     const recent = (prev.sends || []).filter((t) => Date.now() - t < 60 * 60 * 1000);

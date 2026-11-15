@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 
 // App version — bump on every deploy so the running site shows which build is live.
-const APP_VERSION = "v1B.44";
+const APP_VERSION = "v1B.44.1";
 
 /* ============================================================================
    UNFAIR ADVANTAGE — v1B
@@ -486,7 +486,7 @@ textarea.fb-note{
 }
 .limit-box h3{ font-family:var(--font-display); color:#7a4d0c; margin:0 0 6px; }
 .limit-box p{ font-size:.9rem; color:#5c4415; margin:0; font-weight:700; }
-.count-note{ text-align:center; font-size:.78rem; color:var(--muted); margin-top:14px; }
+.count-note{ text-align:center; font-size:1rem; font-weight:700; color:var(--deep); margin-top:14px; }
 .acct-line{ text-align:center; font-size:.78rem; color:var(--muted); margin-top:6px; line-height:1.6; }
 .link-btn{
   background:none; border:none; padding:2px 4px; color:var(--deep); text-decoration:underline;
@@ -1640,7 +1640,7 @@ export default function App() {
                   </>
                 )}
                 <input
-                  className="acct-input" type="email" inputMode="email" autoComplete="email"
+                  autoFocus className="acct-input" type="email" inputMode="email" autoComplete="email"
                   placeholder="you@example.com" value={signin.email}
                   onChange={(e) => setSignin((s) => ({ ...s, email: e.target.value, err: "" }))}
                   onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); sendCode(); } }}
@@ -1660,7 +1660,7 @@ export default function App() {
                 <h3>Check your email</h3>
                 <p>Enter the 6-digit code we sent to {signin.email.trim()}. If it isn't in your inbox, check your spam folder.</p>
                 <input
-                  className="acct-input code" type="text" inputMode="numeric" autoComplete="one-time-code"
+                  autoFocus className="acct-input code" type="text" inputMode="numeric" autoComplete="one-time-code"
                   maxLength={6} placeholder="000000" value={signin.code}
                   onChange={(e) => setSignin((s) => ({ ...s, code: e.target.value.replace(/\D/g, "").slice(0, 6), err: "" }))}
                   onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); checkCode(); } }}
@@ -1902,7 +1902,7 @@ function FeedbackGate({ fb, setFb, onSubmit, count, optional }) {
   return (
     <div className="feedback-card">
       <h3>Quick check</h3>
-      <p className="feedback-sub">{optional ? "Optional. Your answers help us improve the tool." : "Two taps unlock your next valuation."}</p>
+      <p className="feedback-sub">{optional ? "Optional. Your answers help us improve the tool." : "Answer 2 quick questions before your next valuation."}</p>
 
       <div className="fq">
         <div className="q">How does the price look?</div>

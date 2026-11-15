@@ -43,10 +43,10 @@ export default async (req) => {
       try {
         const now = new Date();
         const ua = req.headers.get("user-agent") || "";
-        const rec = (await getStore("usage").get("dev_" + r.dev, { type: "json" })) || {};
+        const rec = (await getStore({ name: "usage", consistency: "strong" }).get("dev_" + r.dev, { type: "json" })) || {};
         const extra = r.mode === "unlimited" ? (r.key ? { keyHolder: r.key } : { unlimitedDevice: true })
           : r.mode === "family" ? { familyKey: r.key } : r.email ? { email: r.email } : {};
-        await getStore("usage").setJSON("dev_" + r.dev, {
+        await getStore({ name: "usage", consistency: "strong" }).setJSON("dev_" + r.dev, {
           used: 0, ...rec, lastSeen: now.toISOString(), lastSeenEastern: easternTime(now),
           phone: phoneType(ua), userAgent: ua.slice(0, 300), ...extra,
         });

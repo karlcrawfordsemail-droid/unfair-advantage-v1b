@@ -19,11 +19,11 @@ export default async (req) => {
     const origin = new URL(req.url).origin;
 
     if (action === "signout") {
-      await getStore("sessions").delete("s_" + String(token).replace(/[^a-f0-9]/g, ""));
+      await getStore({ name: "sessions", consistency: "strong" }).delete("s_" + String(token).replace(/[^a-f0-9]/g, ""));
       return json({ ok: true });
     }
 
-    const acct = (await getJSON(getStore("accounts"), accountKey(email))) || { email };
+    const acct = (await getJSON(getStore({ name: "accounts", consistency: "strong" }), accountKey(email))) || { email };
 
     if (action === "checkout") {
       if (subscriptionActive(acct)) return json({ error: "You already have a subscription." }, 400);

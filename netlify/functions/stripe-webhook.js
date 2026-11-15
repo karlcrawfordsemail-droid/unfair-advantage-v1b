@@ -8,7 +8,7 @@ import { stripe, verifySignature, periodEnd } from "../lib/stripe.js";
 
 async function findEmail(customerId, fallbackEmail) {
   if (customerId) {
-    const m = await getJSON(getStore("accounts"), customerKey(customerId));
+    const m = await getJSON(getStore({ name: "accounts", consistency: "strong" }), customerKey(customerId));
     if (m && m.email) return m.email;
   }
   return cleanEmail(fallbackEmail);
@@ -16,7 +16,7 @@ async function findEmail(customerId, fallbackEmail) {
 
 async function update(email, fields, customerId) {
   if (!email) return;
-  const accounts = getStore("accounts");
+  const accounts = getStore({ name: "accounts", consistency: "strong" });
   const key = accountKey(email);
   const acct = (await getJSON(accounts, key)) || { email, created: new Date().toISOString(), freeUsed: 0 };
   await accounts.setJSON(key, { ...acct, ...fields, updated: new Date().toISOString() });
@@ -29,7 +29,7 @@ export default async (req) => {
     return new Response("bad signature", { status: 400 });
   }
   const event = JSON.parse(raw);
-  const events = getStore("stripe-events");
+  const events = getStore({ name: "stripe-events", consistency: "strong" });
   if (await getJSON(events, event.id)) return new Response("already handled");
 
   try {
@@ -44,7 +44,7 @@ export default async (req) => {
       }, o.customer);
     } else if (event.type === "invoice.paid") {
       const email = await findEmail(o.customer, o.customer_email);
-      const acct = email ? await getJSON(getStore("accounts"), accountKey(email)) : null;
+      const acct = email ? await getJSON(getStore({ name: "accounts", consistency: "strong" }), accountKey(email)) : null;
       const line = o.lines && o.lines.data && o.lines.data[0];
       const subId = o.subscription || (o.parent && o.parent.subscription_details && o.parent.subscription_details.subscription) || (acct && acct.subscriptionId);
       // A new paid month resets the count. The same invoice never resets twice.

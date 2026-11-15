@@ -15,7 +15,7 @@ export default async (req) => {
     const code = String(rawCode || "").replace(/\D/g, "");
     if (!email || code.length !== 6) return json({ error: "Enter the 6-digit code from the email." }, 400);
 
-    const store = getStore("auth-codes");
+    const store = getStore({ name: "auth-codes", consistency: "strong" });
     const key = "e_" + email.replace(/[^a-z0-9@._+-]/g, "");
     const rec = await getJSON(store, key);
     if (!rec || !rec.codeHash || Date.now() > rec.expires) {
@@ -32,13 +32,13 @@ export default async (req) => {
     // Code used: clear it (keep the send history for the hourly limit).
     await store.setJSON(key, { sends: rec.sends || [] });
 
-    const accounts = getStore("accounts");
+    const accounts = getStore({ name: "accounts", consistency: "strong" });
     const aKey = accountKey(email);
     const acct = await getJSON(accounts, aKey);
     if (!acct) await accounts.setJSON(aKey, { email, created: new Date().toISOString(), freeUsed: 0 });
 
     const token = crypto.randomBytes(24).toString("hex");
-    await getStore("sessions").setJSON("s_" + token, { email, created: new Date().toISOString() });
+    await getStore({ name: "sessions", consistency: "strong" }).setJSON("s_" + token, { email, created: new Date().toISOString() });
     return json({ token, email });
   } catch (e) {
     return json({ error: "Couldn't check the code. Try again." }, 500);

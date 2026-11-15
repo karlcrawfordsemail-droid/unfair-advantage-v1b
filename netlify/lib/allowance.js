@@ -38,7 +38,7 @@ export async function getJSON(store, key) {
 
 export async function emailFromToken(token) {
   if (!token || typeof token !== "string" || token.length > 128) return "";
-  const s = await getJSON(getStore("sessions"), "s_" + token.replace(/[^a-f0-9]/g, ""));
+  const s = await getJSON(getStore({ name: "sessions", consistency: "strong" }), "s_" + token.replace(/[^a-f0-9]/g, ""));
   return s && s.email ? s.email : "";
 }
 
@@ -55,12 +55,12 @@ export async function resolve({ deviceId, key, token }) {
   if (dev && list(process.env.UA_UNLIMITED_DEVICES, cleanDeviceId).includes(dev)) return { mode: "unlimited", dev };
   if (k && list(process.env.UA_FAMILY_KEYS, cleanKey).includes(k)) return { mode: "family", key: k, dev };
 
-  const usage = getStore("usage");
+  const usage = getStore({ name: "usage", consistency: "strong" });
   const devRec = dev ? await getJSON(usage, "dev_" + dev) : null;
   const devUsed = !dev ? ANON_FREE : devRec && typeof devRec.used === "number" ? devRec.used : 0;
   const email = await emailFromToken(token);
   if (email) {
-    const acct = (await getJSON(getStore("accounts"), accountKey(email))) || { email };
+    const acct = (await getJSON(getStore({ name: "accounts", consistency: "strong" }), accountKey(email))) || { email };
     if (subscriptionActive(acct)) return { mode: "subscriber", email, acct, dev, devRec, devUsed };
     return { mode: "free_email", email, acct, dev, devRec, devUsed };
   }
@@ -72,7 +72,7 @@ export async function summarize(r) {
   const out = { mode: r.mode, email: r.email || "", allowed: true, remaining: null, limit: null, needs: null };
   if (r.mode === "unlimited") { out.unlimited = true; return out; }
   if (r.mode === "family") {
-    const f = await getJSON(getStore("usage"), "family_" + r.key.replace(/[^a-z0-9_-]/g, "").slice(0, 64));
+    const f = await getJSON(getStore({ name: "usage", consistency: "strong" }), "family_" + r.key.replace(/[^a-z0-9_-]/g, "").slice(0, 64));
     const used = f && typeof f.used === "number" ? f.used : 0;
     out.family = true; out.limit = FAMILY_LIMIT; out.remaining = Math.max(0, FAMILY_LIMIT - used);
     if (!out.remaining) { out.allowed = false; out.needs = "family_done"; }
@@ -102,8 +102,8 @@ export async function summarize(r) {
 // Where one valuation is counted, so a failed one can be given back.
 async function adjust(bucket, id, delta) {
   const now = new Date().toISOString();
-  const usage = getStore("usage");
-  const accounts = getStore("accounts");
+  const usage = getStore({ name: "usage", consistency: "strong" });
+  const accounts = getStore({ name: "accounts", consistency: "strong" });
   const bump = (n) => Math.max(0, (n || 0) + delta);
   if (bucket === "key" || bucket === "family") {
     const k = (bucket === "key" ? "key_" : "family_") + id.key.replace(/[^a-z0-9_-]/g, "").slice(0, 64);
@@ -136,7 +136,7 @@ export async function consume(r) {
   if (r.mode !== "unlimited") s.remaining -= 1;
 
   const ticket = crypto.randomBytes(16).toString("hex");
-  await getStore("tickets").setJSON("t_" + ticket, { created: Date.now(), uses: 0, mode: r.mode, bucket, id, charged: true });
+  await getStore({ name: "tickets", consistency: "strong" }).setJSON("t_" + ticket, { created: Date.now(), uses: 0, mode: r.mode, bucket, id, charged: true });
   s.ticket = ticket;
   if (s.remaining === 0 && s.mode !== "unlimited") {
     s.needsNext = s.mode === "anon" ? "signin" : s.mode === "free_email" ? "subscribe" : s.mode === "family" ? "family_done" : "month_done";
@@ -147,7 +147,7 @@ export async function consume(r) {
 // Called by the valuation function. New jobs need a valid ticket; answers to a
 // clarifying question reuse the job that was already approved.
 export async function authorizeJob({ jobId, ticket, isResume }) {
-  const tickets = getStore("tickets");
+  const tickets = getStore({ name: "tickets", consistency: "strong" });
   const jobKey = "j_" + String(jobId).replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 100);
   if (isResume && (await getJSON(tickets, jobKey))) return true;
   if (!ticket || typeof ticket !== "string") return false;
@@ -163,7 +163,7 @@ export async function authorizeJob({ jobId, ticket, isResume }) {
 // A ticket that started any job is settled by the job instead.
 export async function releaseTicket(ticket) {
   if (!ticket || typeof ticket !== "string") return;
-  const tickets = getStore("tickets");
+  const tickets = getStore({ name: "tickets", consistency: "strong" });
   const tKey = "t_" + ticket.replace(/[^a-f0-9]/g, "");
   const t = await getJSON(tickets, tKey);
   if (!t || t.uses > 0 || !t.charged) return;
@@ -177,11 +177,11 @@ export async function releaseTicket(ticket) {
 // Every failure is logged in the Blobs "failures" store.
 export async function settleJob(jobId, outcome, detail) {
   try {
-    const tickets = getStore("tickets");
+    const tickets = getStore({ name: "tickets", consistency: "strong" });
     const j = await getJSON(tickets, "j_" + String(jobId).replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 100));
     const t = j && j.ticket ? await getJSON(tickets, j.ticket) : null;
     if (outcome !== "success") {
-      await getStore("failures").setJSON("f_" + Date.now() + "_" + String(jobId).slice(-8), {
+      await getStore({ name: "failures", consistency: "strong" }).setJSON("f_" + Date.now() + "_" + String(jobId).slice(-8), {
         at: new Date().toISOString(), jobId, outcome, detail: String(detail || "").slice(0, 500),
         mode: t ? t.mode : "", email: t && t.id ? t.id.email : "",
       });
