@@ -3,7 +3,7 @@
 // Events to send: checkout.session.completed, invoice.paid,
 //   customer.subscription.updated, customer.subscription.deleted
 import { getStore } from "@netlify/blobs";
-import { getJSON, accountKey, customerKey, cleanEmail } from "../lib/allowance.js";
+import { getJSON, accountKey, customerKey, cleanEmail, planFromPrice, PACK_SIZE, PACK_DAYS } from "../lib/allowance.js";
 import { stripe, verifySignature, periodEnd } from "../lib/stripe.js";
 
 async function findEmail(customerId, fallbackEmail) {
@@ -34,11 +34,24 @@ export default async (req) => {
 
   try {
     const o = event.data.object;
-    if (event.type === "checkout.session.completed" && o.mode === "subscription") {
+    if (event.type === "checkout.session.completed" && o.mode === "payment" && o.metadata && o.metadata.kind === "pack10") {
+      // 10-Pack bought: add 10 valuations, good for 12 months. Each payment adds once.
+      if (o.payment_status === "paid") {
+        const email = cleanEmail(o.client_reference_id) || await findEmail(o.customer, o.customer_details && o.customer_details.email);
+        const acct = email ? await getJSON(getStore({ name: "accounts", consistency: "strong" }), accountKey(email)) : null;
+        const packs = (acct && acct.packs) || [];
+        if (email && !packs.some((p) => p.id === o.id)) {
+          const fields = { packs: [...packs, { id: o.id, total: PACK_SIZE, used: 0, bought: new Date().toISOString(), expires: new Date(Date.now() + PACK_DAYS * 86400000).toISOString() }] };
+          if (o.customer) fields.customerId = (acct && acct.customerId) || o.customer;
+          await update(email, fields, o.customer || null);
+        }
+      }
+    } else if (event.type === "checkout.session.completed" && o.mode === "subscription") {
       const email = cleanEmail(o.client_reference_id) || await findEmail(o.customer, o.customer_details && o.customer_details.email);
       const sub = o.subscription ? await stripe("GET", "/subscriptions/" + o.subscription) : null;
+      const subPrice = sub && sub.items && sub.items.data && sub.items.data[0] && sub.items.data[0].price && sub.items.data[0].price.id;
       await update(email, {
-        customerId: o.customer, subscriptionId: o.subscription, plan: "basic",
+        customerId: o.customer, subscriptionId: o.subscription, plan: planFromPrice(subPrice),
         status: sub ? sub.status : "active", periodEnd: periodEnd(sub),
         cancelAtPeriodEnd: !!(sub && sub.cancel_at_period_end),
       }, o.customer);
@@ -47,20 +60,21 @@ export default async (req) => {
       const acct = email ? await getJSON(getStore({ name: "accounts", consistency: "strong" }), accountKey(email)) : null;
       const line = o.lines && o.lines.data && o.lines.data[0];
       const subId = o.subscription || (o.parent && o.parent.subscription_details && o.parent.subscription_details.subscription) || (acct && acct.subscriptionId);
+      const linePrice = line && ((line.price && line.price.id) || (line.pricing && line.pricing.price_details && line.pricing.price_details.price));
       // A new paid month resets the count. The same invoice never resets twice.
-      if (!acct || acct.lastInvoiceId !== o.id) {
+      if (subId && (!acct || acct.lastInvoiceId !== o.id)) {
         await update(email, {
-          customerId: o.customer, subscriptionId: subId, plan: "basic", status: "active",
+          customerId: o.customer, subscriptionId: subId, plan: planFromPrice(linePrice), status: "active",
           periodUsed: 0, lastInvoiceId: o.id,
           periodEnd: line && line.period && line.period.end ? new Date(line.period.end * 1000).toISOString() : (acct && acct.periodEnd) || null,
         }, o.customer);
       }
     } else if (event.type === "customer.subscription.updated") {
       const email = await findEmail(o.customer, o.metadata && o.metadata.email);
-      await update(email, {
-        subscriptionId: o.id, status: o.status, periodEnd: periodEnd(o),
-        cancelAtPeriodEnd: !!o.cancel_at_period_end,
-      }, o.customer);
+      const itemPrice = o.items && o.items.data && o.items.data[0] && o.items.data[0].price && o.items.data[0].price.id;
+      const fields = { subscriptionId: o.id, status: o.status, periodEnd: periodEnd(o), cancelAtPeriodEnd: !!o.cancel_at_period_end };
+      if (itemPrice) fields.plan = planFromPrice(itemPrice);
+      await update(email, fields, o.customer);
     } else if (event.type === "customer.subscription.deleted") {
       const email = await findEmail(o.customer, o.metadata && o.metadata.email);
       await update(email, { status: "canceled", plan: "none", cancelAtPeriodEnd: false }, o.customer);

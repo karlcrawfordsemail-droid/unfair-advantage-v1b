@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 
 // App version — bump on every deploy so the running site shows which build is live.
-const APP_VERSION = "v1B.44.1";
+const APP_VERSION = "v1B.45";
 
 /* ============================================================================
    UNFAIR ADVANTAGE — v1B
@@ -17,8 +17,11 @@ const MAX_PHOTOS = 5;
 // Free use and plans are decided on the server (netlify/lib/allowance.js):
 // 1 free valuation with no sign-in, 2 more after entering an email, then the
 // Basic plan. Shown on screen only — changing these does not change the rules.
-const BASIC_PRICE = "$9.99";
-const BASIC_LIMIT = 25;
+const PLANS = [
+  { id: "basic", name: "Basic", price: "$9.99", per: "a month", detail: "25 valuations a month. Unused valuations don't carry over to the next month. Cancel anytime." },
+  { id: "pro", name: "Pro", price: "$14.99", per: "a month", detail: "50 valuations a month. Unused valuations don't carry over to the next month. Cancel anytime." },
+  { id: "pack10", name: "10-Pack", price: "$4.99", per: "one time", detail: "10 valuations, good for 12 months. No subscription." },
+];
 // Testing: require quick feedback before the next valuation unlocks.
 // Set to false at launch — the follow-up stays, feedback becomes optional/gone.
 const REQUIRE_FEEDBACK = true;
@@ -506,7 +509,18 @@ textarea.fb-note{
 .acct-box .primary-button{ width:100%; margin:0; }
 .acct-box .primary-button:disabled{ opacity:.55; cursor:default; }
 .acct-links{ display:flex; justify-content:space-between; gap:8px; margin-top:12px; font-size:.86rem; }
-.plan-price{ font-family:var(--font-display); font-weight:900; font-size:2.2rem; color:var(--deep); line-height:1; }
+.hero-id{ font-family:var(--font-display); font-weight:800; font-size:1.25rem; line-height:1.25; margin:2px 0 14px; }
+.details-toggle{
+  width:100%; margin:12px 0; padding:13px; border-radius:var(--radius-md); border:1.5px solid var(--line);
+  background:var(--surface); color:var(--deep); font-family:var(--font-body); font-size:1rem; font-weight:700; cursor:pointer;
+}
+.legal-links{ display:flex; justify-content:center; flex-wrap:wrap; gap:4px 16px; margin-top:14px; font-size:.82rem; }
+.legal-links a{ color:var(--muted); }
+.plan-list{ display:flex; flex-direction:column; gap:12px; }
+.plan-card{ border:1.5px solid var(--line); border-radius:var(--radius-md); padding:14px; background:#fff; }
+.plan-head{ display:flex; justify-content:space-between; align-items:baseline; gap:8px; flex-wrap:wrap; }
+.plan-name{ font-family:var(--font-display); font-weight:800; font-size:1.2rem; color:var(--deep); }
+.plan-price{ font-family:var(--font-display); font-weight:900; font-size:1.5rem; color:var(--deep); line-height:1; }
 .plan-price small{ font-size:1rem; font-weight:700; color:var(--muted); }
 .plan-detail{ margin:8px 0 16px !important; }
 .notice{ background:var(--blue-soft); border:1.5px solid #b9d6e4; color:var(--blue); border-radius:var(--radius-md);
@@ -586,7 +600,7 @@ export default function App() {
   const [planErr, setPlanErr] = useState("");
   const [notice, setNotice] = useState("");
   // Paying subscribers can answer the survey but are never required to.
-  const feedbackRequired = REQUIRE_FEEDBACK && !(acct && acct.mode === "subscriber");
+  const feedbackRequired = REQUIRE_FEEDBACK && !(acct && (acct.mode === "subscriber" || acct.unlimited));
   const [fbFree, setFbFree] = useState({ text: "", sent: false, busy: false });
   const prevPhaseRef = useRef("capture");
   const [needsFeedback, setNeedsFeedback] = useState(false);
@@ -655,28 +669,32 @@ export default function App() {
       try {
         const params = new URLSearchParams(window.location.search);
         checkout = params.get("checkout");
+        var kind = params.get("kind") || "";
         if (checkout) {
           params.delete("checkout");
+          params.delete("kind");
           const qs = params.toString();
           window.history.replaceState(null, "", window.location.pathname + (qs ? "?" + qs : ""));
         }
       } catch { /* ignore */ }
       const u = await refreshAccount();
       if (checkout === "cancel") setNotice("Payment canceled. You weren't charged.");
-      if (checkout === "success" && !(u && u.mode === "subscriber")) {
-        // Stripe confirms the payment to the server a few seconds after it goes through.
-        setNotice("Payment received. Turning on your subscription\u2026");
-        for (let i = 0; i < 20; i++) {
-          await sleep(2000);
-          const v = await refreshAccount();
-          if (v && v.mode === "subscriber") break;
-        }
-      }
       if (checkout === "success") {
+        // Stripe confirms the payment to the server a few seconds after it goes through.
+        const isPack = kind === "pack10";
+        const before = (u && u.packLeft) || 0;
+        const done = (v) => v && (isPack ? (v.packLeft || 0) > before : v.mode === "subscriber");
+        if (!done(u) || !isPack) {
+          if (!done(u)) setNotice(isPack ? "Payment received. Adding your 10-Pack\u2026" : "Payment received. Turning on your subscription\u2026");
+          for (let i = 0; i < 20 && !done(u); i++) {
+            await sleep(2000);
+            if (done(await refreshAccount())) break;
+          }
+        }
         const v = await refreshAccount();
-        setNotice(v && v.mode === "subscriber"
-          ? `Your subscription is on. You have ${v.remaining} valuations this month.`
-          : "Payment received. If your valuations don't show yet, reload the page in a minute.");
+        if (!done(v)) setNotice("Payment received. If your valuations don't show yet, reload the page in a minute.");
+        else if (isPack) setNotice(`Your 10-Pack is ready. You have ${v.remaining} valuations.`);
+        else setNotice(`Your ${v.plan === "pro" ? "Pro" : "Basic"} subscription is on. You have ${v.remaining} valuations this month.`);
       }
     })();
   }, []);
@@ -754,10 +772,10 @@ export default function App() {
     setPhase("signin");
   };
 
-  const accountAction = async (action) => {
-    setPlanBusy(true); setPlanErr("");
+  const accountAction = async (action, plan) => {
+    setPlanBusy(plan || action); setPlanErr("");
     try {
-      const { ok, data } = await postJSON("/.netlify/functions/account", { token: getToken(), action });
+      const { ok, data } = await postJSON("/.netlify/functions/account", { token: getToken(), action, plan });
       if (data && data.signedOut) { setToken(""); await refreshAccount(); setPlanBusy(false); routeNeeds("signin"); return; }
       if (!ok) { setPlanErr(data.error || "Something went wrong. Try again."); setPlanBusy(false); return; }
       if (action === "signout") {
@@ -1056,13 +1074,13 @@ export default function App() {
             runPipeline({ jobId, forceLane, clarification, priorKlass, retry: true });
             return;
           }
-          fail((pd.error || "The valuation couldn't be completed.") + " Try again.");
+          fail(friendly(pd.error || "The valuation couldn't be completed."));
           return;
         }
       }
-      fail("This is taking longer than expected. Please try again.");
+      fail(friendly("taking longer"));
     } catch (err) {
-      fail(`Something went wrong: ${err.message}. Try again.`);
+      fail(friendly(err && err.message));
     }
   };
 
@@ -1077,6 +1095,20 @@ export default function App() {
     setFb({ reliable: null, rot: null, note: "" });
     setNeedsFeedback(true);
     setPhase("result");
+  };
+
+  // Plain-language messages; the technical reason is logged on the server.
+  const friendly = (raw) => {
+    const t = String(raw || "").toLowerCase();
+    if (/credit|billing|overload|rate.?limit|429|529|api key|authentication|quota/.test(t))
+      return "The pricing service is busy right now. You weren't charged. Try again in a few minutes.";
+    if (/couldn't read a valuation|parse|json|unexpected token/.test(t))
+      return "We couldn't price this one. Try clearer photos of the item itself, or add a few words about what it is. You weren't charged.";
+    if (/taking longer|timeout|timed out/.test(t))
+      return "This is taking longer than expected. You weren't charged. Try again.";
+    if (/failed to fetch|network|load failed/.test(t))
+      return "Couldn't reach the server. Check your connection and try again. You weren't charged.";
+    return "Something went wrong, and you weren't charged. Try again.";
   };
 
   const fail = (msg) => {
@@ -1235,24 +1267,11 @@ export default function App() {
   const Header = (
     <header className="appbar">
       <div className="brand">
-        <div className="brand-mark" aria-label="Unfair Advantage logo">
-          <svg viewBox="0 0 44 44" width="44" height="44" role="img" aria-hidden="true">
-            <defs>
-              <linearGradient id="uaGold" x1="0" y1="0" x2="44" y2="44" gradientUnits="userSpaceOnUse">
-                <stop offset="0" stopColor="#f2b64b" />
-                <stop offset="1" stopColor="#d98a1f" />
-              </linearGradient>
-            </defs>
-            <rect x="1.5" y="1.5" width="41" height="41" rx="11" fill="url(#uaGold)" />
-            <rect x="1.5" y="1.5" width="41" height="41" rx="11" fill="none" stroke="#ffffff" strokeOpacity="0.30" strokeWidth="1.5" />
-            {/* U cradle with the A rising from inside it — reads "UA" */}
-            <path d="M11 11 V23 a11 11 0 0 0 22 0 V11" fill="none" stroke="#173d34" strokeWidth="3.6" strokeLinecap="round" />
-            <path d="M22 9 L29 27 H25.6 L22 17 L18.4 27 H15 Z" fill="#173d34" />
-            <rect x="18.4" y="22.5" width="7.2" height="2.8" fill="#173d34" />
-          </svg>
+        <div className="brand-mark">
+          <img src="/icon-192.png" width="44" height="44" alt="" style={{ display: "block", borderRadius: 11 }} />
         </div>
         <div className="brand-text">
-          <div className="brand-name">Unfair Advantage <span className="brand-version">{APP_VERSION}</span></div>
+          <div className="brand-name">PriceThisThing <span className="brand-version">{APP_VERSION}</span></div>
         </div>
       </div>
     </header>
@@ -1307,7 +1326,14 @@ export default function App() {
             <span className="section-bar-note">Add up to 5 photos</span>
           </div>
 
-          {error && <div className="error-box">{error}</div>}
+          {error && (
+            <div className="error-box">
+              {error}
+              <div style={{ marginTop: 10 }}>
+                <button className="link-btn" style={{ color: "inherit" }} onClick={nextItem}>Start over with a new item</button>
+              </div>
+            </div>
+          )}
 
           <section className="photo-row">
             {SLOTS.concat(EXTRA_SLOTS).map((slot, i) => {
@@ -1457,13 +1483,21 @@ export default function App() {
                   : acct.remaining == null
                     ? ""
                     : acct.mode === "subscriber"
-                      ? `${acct.remaining} of ${acct.limit} left this month`
+                      ? `${acct.monthLeft} of ${acct.limit} left this month` + (acct.packLeft ? ` + ${acct.packLeft} from your 10-Pack` : "")
                       : family
                         ? `${acct.remaining} of ${acct.limit} remaining`
-                        : `${acct.remaining} free valuation${acct.remaining === 1 ? "" : "s"} left`}
+                        : acct.packLeft
+                          ? `${acct.remaining} valuation${acct.remaining === 1 ? "" : "s"} left`
+                          : `${acct.remaining} free valuation${acct.remaining === 1 ? "" : "s"} left`}
               </div>
               <div className="acct-line">
                 <button className="link-btn" onClick={openFeedback}>Send feedback about the app</button>
+              </div>
+              <div className="legal-links">
+                <a href="/terms.html">Terms</a>
+                <a href="/privacy.html">Privacy</a>
+                <a href="/refunds.html">Refunds</a>
+                <a href="mailto:support@pricethisthing.com">Contact</a>
               </div>
               {!unlimited && !family && (
                 <div className="acct-line">
@@ -1472,9 +1506,9 @@ export default function App() {
                       Signed in as {acct.email}
                       <br />
                       {(acct.mode === "subscriber" || acct.hasCustomer) && (
-                        <button className="link-btn" disabled={planBusy} onClick={() => accountAction("manage")}>Manage subscription</button>
+                        <button className="link-btn" disabled={!!planBusy} onClick={() => accountAction("manage")}>Manage subscription</button>
                       )}
-                      <button className="link-btn" disabled={planBusy} onClick={() => accountAction("signout")}>Sign out</button>
+                      <button className="link-btn" disabled={!!planBusy} onClick={() => accountAction("signout")}>Sign out</button>
                     </>
                   ) : (
                     <>Have a subscription? <button className="link-btn" onClick={openSignin}>Sign in</button></>
@@ -1587,7 +1621,7 @@ export default function App() {
 
           {needsFeedback && (
             <div ref={feedbackRef} className={flashFeedback ? "flash-attention" : ""}>
-              <FeedbackGate fb={fb} setFb={setFb} onSubmit={submitFeedback} count={count} optional={!feedbackRequired} />
+              <FeedbackGate fb={fb} setFb={setFb} onSubmit={submitFeedback} count={count} optional={!feedbackRequired} onSkip={() => setNeedsFeedback(false)} />
             </div>
           )}
 
@@ -1636,7 +1670,7 @@ export default function App() {
                 ) : (
                   <>
                     <h3>Sign in</h3>
-                    <p>Enter the email you use with Unfair Advantage. We'll send you a 6-digit code.</p>
+                    <p>Enter the email you use with PriceThisThing. We'll send you a 6-digit code.</p>
                   </>
                 )}
                 <input
@@ -1721,30 +1755,44 @@ export default function App() {
                   {acct.periodEnd
                     ? `Your count resets on ${fmtDate(acct.periodEnd)}, when your subscription renews.`
                     : "Your count resets when your subscription renews."}
+                  {" "}To keep going before then, add a 10-Pack.
                 </p>
                 {planErr && <div className="error-box">{planErr}</div>}
-                <button className="primary-button" disabled={planBusy} onClick={() => accountAction("manage")}>
+                <button className="primary-button" disabled={!!planBusy} onClick={() => accountAction("checkout", "pack10")}>
+                  {planBusy === "pack10" ? "Opening payment page\u2026" : "Add a 10-Pack \u2014 $4.99"}
+                </button>
+                <button className="link-btn" style={{ marginTop: 12 }} disabled={!!planBusy} onClick={() => accountAction("manage")}>
                   Manage subscription
                 </button>
               </>
             ) : (
               <>
                 <h3>You've used your free valuations</h3>
-                <p>To keep pricing items, subscribe to Basic.</p>
-                <div className="plan-price">{BASIC_PRICE} <small>a month</small></div>
-                <p className="plan-detail">{BASIC_LIMIT} valuations a month. Cancel anytime.</p>
+                <p>Choose how you'd like to keep pricing items.</p>
                 {planErr && <div className="error-box">{planErr}</div>}
-                <button className="primary-button" disabled={planBusy} onClick={() => accountAction("checkout")}>
-                  {planBusy ? "Opening payment page\u2026" : "Subscribe"}
-                </button>
+                <div className="plan-list">
+                  {PLANS.map((pl) => (
+                    <div className="plan-card" key={pl.id}>
+                      <div className="plan-head">
+                        <span className="plan-name">{pl.name}</span>
+                        <span className="plan-price">{pl.price} <small>{pl.per}</small></span>
+                      </div>
+                      <p className="plan-detail">{pl.detail}</p>
+                      <button className="primary-button" disabled={!!planBusy} onClick={() => accountAction("checkout", pl.id)}>
+                        {planBusy === pl.id ? "Opening payment page\u2026" : pl.id === "pack10" ? "Buy 10-Pack" : `Subscribe to ${pl.name}`}
+                      </button>
+                    </div>
+                  ))}
+                </div>
                 <p style={{ marginTop: 12, marginBottom: 0, fontSize: ".82rem", color: "var(--muted)" }}>
-                  Payment is handled by Stripe. Signed in as {acct && acct.email}.
+                  Prices in US dollars. Payment is handled by Stripe. By purchasing, you agree to the{" "}
+                  <a href="/terms.html">Terms</a> and <a href="/refunds.html">Refund policy</a>. Signed in as {acct && acct.email}.
                 </p>
               </>
             )}
             <div className="acct-links">
               <button className="link-btn" onClick={() => setPhase("capture")}>Back</button>
-              <button className="link-btn" disabled={planBusy} onClick={() => accountAction("signout")}>Sign out</button>
+              <button className="link-btn" disabled={!!planBusy} onClick={() => accountAction("signout")}>Sign out</button>
             </div>
           </div>
         </div>
@@ -1756,7 +1804,7 @@ export default function App() {
           <div className="limit-box">
             {family ? (
               <>
-                <h3>Thank you for trying Unfair Advantage.</h3>
+                <h3>Thank you for trying PriceThisThing.</h3>
                 <p>You've used your {acct && acct.limit} free valuations.</p>
                 <p style={{ marginTop: 12 }}>
                   A discounted family rate is coming soon. Karl will let you know when it's ready.
@@ -1764,7 +1812,7 @@ export default function App() {
               </>
             ) : (
               <>
-                <h3>Thank you for trying Unfair Advantage.</h3>
+                <h3>Thank you for trying PriceThisThing.</h3>
                 <p>You've used your free valuations.</p>
               </>
             )}
@@ -1799,19 +1847,31 @@ function ResultView({ result }) {
     SpecificBuyer: "A specific buyer \u2014 this sells best to the right person",
   };
   const market = marketMap[result.itemType];
+  const [showDetails, setShowDetails] = useState(false);
 
   return (
     <>
       <section className="price-hero">
-        <div className="price-kicker">Estimated value</div>
+        <div className="price-kicker">What it is</div>
+        <div className="hero-id">{result.id || "Item"}</div>
         <div className="retail-label">Most likely retail range</div>
         <div className="retail-price">{retail}</div>
-        <div className="retail-note">Condition, markings, and other details can move this price. See below.</div>
         <div className="wholesale-line">
           <span className="wholesale-label">Wholesale (what to pay)</span>
           <span className="wholesale-value">{wholesale}</span>
         </div>
+        <div className="confidence" style={{ marginTop: 12 }}>
+          <span className="confidence-label" style={{ color: "rgba(255,255,255,.72)" }}>Confidence</span>
+          <span className={"confidence-pill " + pillClass}>{confText}</span>
+        </div>
       </section>
+
+      <button className="details-toggle" onClick={() => setShowDetails((v) => !v)} aria-expanded={showDetails}>
+        {showDetails ? "Hide details \u25B4" : "Show details \u25BE"}
+      </button>
+
+      {showDetails && (<>
+      <div className="retail-note" style={{ margin: "4px 2px 12px", color: "var(--muted)" }}>Condition, markings, and other details can move this price.</div>
 
       {market && (
         <section className="market-strip">
@@ -1820,14 +1880,6 @@ function ResultView({ result }) {
         </section>
       )}
 
-      <section className="result-section">
-        <h3>What it is</h3>
-        <p>{result.id || "Item"}</p>
-        <div className="confidence">
-          <span className="confidence-label">Confidence</span>
-          <span className={"confidence-pill " + pillClass}>{confText}</span>
-        </div>
-      </section>
 
       {scenarios.length > 0 && (
         <section className="scenarios">
@@ -1881,6 +1933,8 @@ function ResultView({ result }) {
         </details>
       )}
 
+      </>)}
+
       <div className="value-only">
         This screen reports market value only. The purchase, sale, or keep decision
         stays entirely with you.
@@ -1890,7 +1944,7 @@ function ResultView({ result }) {
 }
 
 /* ------------------------- Feedback gate ------------------------- */
-function FeedbackGate({ fb, setFb, onSubmit, count, optional }) {
+function FeedbackGate({ fb, setFb, onSubmit, count, optional, onSkip }) {
   // Rotate the second question by valuation number so it changes each time.
   const rot = ROTATING_QUESTIONS[(count - 1 + ROTATING_QUESTIONS.length) % ROTATING_QUESTIONS.length];
   // Written question only at checkpoints (every OPEN_ENDED_EVERY valuations).
@@ -1901,7 +1955,10 @@ function FeedbackGate({ fb, setFb, onSubmit, count, optional }) {
 
   return (
     <div className="feedback-card">
-      <h3>Quick check</h3>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
+        <h3 style={{ margin: 0 }}>{optional ? "Quick check (optional)" : "Quick check"}</h3>
+        {optional && <button className="link-btn" onClick={onSkip}>Skip</button>}
+      </div>
       <p className="feedback-sub">{optional ? "Optional. Your answers help us improve the tool." : "Answer 2 quick questions before your next valuation."}</p>
 
       <div className="fq">

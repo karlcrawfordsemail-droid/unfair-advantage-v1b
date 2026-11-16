@@ -27,7 +27,7 @@ export default async (req) => {
     }
 
     const code = String(crypto.randomInt(0, 1000000)).padStart(6, "0");
-    const from = process.env.RESEND_FROM || "Unfair Advantage <onboarding@resend.dev>";
+    const from = process.env.RESEND_FROM || "PriceThisThing <onboarding@resend.dev>";
     const r = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: { "Authorization": "Bearer " + process.env.RESEND_API_KEY, "Content-Type": "application/json" },
@@ -35,7 +35,7 @@ export default async (req) => {
         from,
         to: [email],
         subject: `Your sign-in code: ${code}`,
-        text: `Your Unfair Advantage sign-in code is ${code}\n\nIt expires in 10 minutes. If you didn't ask for this, ignore this email.`,
+        text: `Your PriceThisThing sign-in code is ${code}\n\nIt expires in 10 minutes. If you didn't ask for this, ignore this email.`,
       }),
     });
     if (!r.ok) {

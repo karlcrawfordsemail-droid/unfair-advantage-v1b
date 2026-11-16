@@ -5,9 +5,11 @@
 //   1. Personal unlimited key (UA_UNLIMITED_KEYS)           -> unlimited
 //   2. Whitelisted device id (UA_UNLIMITED_DEVICES)         -> unlimited
 //   3. Family key (UA_FAMILY_KEYS)                          -> 20 per key
-//   4. Signed-in subscriber (active Basic plan)             -> 25 per billing month
+//   4. Signed-in subscriber (Basic 25 / Pro 50 per billing month),
+//      then any 10-Pack credits once the month's are used
 //   5. Signed-in, not subscribed                            -> 2 free per email,
-//                                                              plus the device's 1 if unused
+//                                                              plus the device's 1 if unused,
+//                                                              then any 10-Pack credits
 //   6. Not signed in                                        -> 1 free per device
 import { getStore } from "@netlify/blobs";
 import crypto from "node:crypto";
@@ -16,6 +18,22 @@ export const ANON_FREE = 1;        // first valuation, no sign-in
 export const EMAIL_FREE = 2;       // after entering an email
 export const FAMILY_LIMIT = 20;
 export const BASIC_LIMIT = 25;     // per billing month
+export const PRO_LIMIT = 50;       // per billing month
+export const PACK_SIZE = 10;
+export const PACK_DAYS = 365;      // a 10-Pack is good for 12 months
+export const planLimit = (plan) => (plan === "pro" ? PRO_LIMIT : BASIC_LIMIT);
+export function planFromPrice(priceId) {
+  if (priceId && process.env.STRIPE_PRICE_PRO && priceId === process.env.STRIPE_PRICE_PRO) return "pro";
+  return "basic";
+}
+// Unexpired 10-Packs with valuations left, soonest to expire first.
+export function livePacks(acct) {
+  const now = Date.now();
+  return ((acct && acct.packs) || [])
+    .filter((p) => p && p.total - (p.used || 0) > 0 && Date.parse(p.expires) > now)
+    .sort((a, b) => Date.parse(a.expires) - Date.parse(b.expires));
+}
+export const packLeft = (acct) => livePacks(acct).reduce((n, p) => n + (p.total - (p.used || 0)), 0);
 const TICKET_MAX_USES = 2;         // original start + one automatic retry
 const TICKET_TTL_MS = 30 * 60 * 1000;
 
@@ -81,7 +99,11 @@ export async function summarize(r) {
   const devLeft = Math.max(0, ANON_FREE - r.devUsed);
   if (r.mode === "subscriber") {
     const used = r.acct.periodUsed || 0;
-    out.plan = "basic"; out.limit = BASIC_LIMIT; out.remaining = Math.max(0, BASIC_LIMIT - used);
+    out.plan = r.acct.plan === "pro" ? "pro" : "basic";
+    out.limit = planLimit(out.plan);
+    out.monthLeft = Math.max(0, out.limit - used);
+    out.packLeft = packLeft(r.acct);
+    out.remaining = out.monthLeft + out.packLeft;
     out.periodEnd = r.acct.periodEnd || null;
     out.cancelAtPeriodEnd = !!r.acct.cancelAtPeriodEnd;
     if (!out.remaining) { out.allowed = false; out.needs = "month_done"; }
@@ -89,7 +111,9 @@ export async function summarize(r) {
   }
   if (r.mode === "free_email") {
     const emailLeft = Math.max(0, EMAIL_FREE - (r.acct.freeUsed || 0));
-    out.remaining = emailLeft + devLeft;
+    out.packLeft = packLeft(r.acct);
+    out.freeLeft = emailLeft + devLeft;
+    out.remaining = out.freeLeft + out.packLeft;
     out.hasCustomer = !!r.acct.customerId;
     if (!out.remaining) { out.allowed = false; out.needs = "subscribe"; }
     return out;
@@ -113,6 +137,11 @@ async function adjust(bucket, id, delta) {
     const k = "dev_" + id.dev;
     const r = (await getJSON(usage, k)) || {};
     await usage.setJSON(k, { ...r, used: bump(r.used), at: now, ...(bucket === "unlimdev" ? { unlimitedDevice: true } : {}) });
+  } else if (bucket === "pack") {
+    const k = accountKey(id.email);
+    const r = (await getJSON(accounts, k)) || { email: id.email };
+    const packs = (r.packs || []).map((p) => (p.id === id.packId ? { ...p, used: bump(p.used) } : p));
+    await accounts.setJSON(k, { ...r, packs, lastValuation: now });
   } else if (bucket === "period" || bucket === "free") {
     const k = accountKey(id.email);
     const r = (await getJSON(accounts, k)) || { email: id.email };
@@ -128,12 +157,18 @@ export async function consume(r) {
   let bucket;
   if (r.mode === "unlimited") bucket = r.key ? "key" : "unlimdev";
   else if (r.mode === "family") bucket = "family";
-  else if (r.mode === "subscriber") bucket = "period";
+  else if (r.mode === "subscriber") bucket = s.monthLeft > 0 ? "period" : "pack";
   else if (r.mode === "free_email" && (r.acct.freeUsed || 0) < EMAIL_FREE) bucket = "free";
-  else bucket = "dev"; // not signed in, or the email's free ones are gone
+  else if (r.mode === "free_email" && r.devUsed < ANON_FREE) bucket = "dev";
+  else if (r.mode === "free_email") bucket = "pack";
+  else bucket = "dev"; // not signed in
   const id = { key: r.key || "", dev: r.dev || "", email: r.email || "" };
+  if (bucket === "pack") id.packId = livePacks(r.acct)[0].id;
   await adjust(bucket, id, +1);
   if (r.mode !== "unlimited") s.remaining -= 1;
+  if (bucket === "period") s.monthLeft -= 1;
+  if (bucket === "pack") s.packLeft -= 1;
+  if (r.mode === "free_email" && (bucket === "free" || bucket === "dev")) s.freeLeft -= 1;
 
   const ticket = crypto.randomBytes(16).toString("hex");
   await getStore({ name: "tickets", consistency: "strong" }).setJSON("t_" + ticket, { created: Date.now(), uses: 0, mode: r.mode, bucket, id, charged: true });
