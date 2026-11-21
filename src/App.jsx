@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 
 // App version — bump on every deploy so the running site shows which build is live.
-const APP_VERSION = "v1B.46";
+const APP_VERSION = "v1B.46.1";
 
 /* ============================================================================
    UNFAIR ADVANTAGE — v1B
@@ -622,35 +622,44 @@ export default function App() {
     catch { return false; }
   })();
 
-  // "Add to Home Screen": on Android/Chrome we capture the native install
-  // prompt and fire it from our own button; on iPhone there's no such event,
-  // so we show the Share -> Add to Home Screen steps instead. Hidden once the
-  // app is already installed (running in standalone display mode).
-  const isIos = typeof navigator !== "undefined" && /iphone|ipad|ipod/i.test(navigator.userAgent || "");
+  // "Add to Home Screen". On a phone that hasn't installed the app yet we
+  // always show the button. If Chrome has offered its native install prompt
+  // (captured in index.html as window.__pwaPrompt), the button fires it in one
+  // tap. Chrome often doesn't offer it, and iPhone never does, so otherwise the
+  // button shows the manual steps for that phone. Hidden once already installed.
+  const ua = typeof navigator !== "undefined" ? (navigator.userAgent || "") : "";
+  const isIos = /iphone|ipad|ipod/i.test(ua);
+  const isAndroid = /android/i.test(ua);
+  const isMobile = isIos || isAndroid;
   const [installPrompt, setInstallPrompt] = useState(null);
   const [isStandalone, setIsStandalone] = useState(false);
-  const [showIosInstall, setShowIosInstall] = useState(false);
+  const [showInstallHelp, setShowInstallHelp] = useState(false);
   useEffect(() => {
     try {
       const standalone = (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) || window.navigator.standalone === true;
       setIsStandalone(!!standalone);
     } catch { /* ignore */ }
-    const onPrompt = (e) => { e.preventDefault(); setInstallPrompt(e); };
-    const onInstalled = () => { setInstallPrompt(null); setShowIosInstall(false); setIsStandalone(true); };
+    if (window.__pwaPrompt) setInstallPrompt(window.__pwaPrompt);
+    const onReady = () => setInstallPrompt(window.__pwaPrompt || null);
+    const onPrompt = (e) => { e.preventDefault(); window.__pwaPrompt = e; setInstallPrompt(e); };
+    const onInstalled = () => { window.__pwaPrompt = null; setInstallPrompt(null); setShowInstallHelp(false); setIsStandalone(true); };
+    window.addEventListener("pwapromptready", onReady);
     window.addEventListener("beforeinstallprompt", onPrompt);
     window.addEventListener("appinstalled", onInstalled);
     return () => {
+      window.removeEventListener("pwapromptready", onReady);
       window.removeEventListener("beforeinstallprompt", onPrompt);
       window.removeEventListener("appinstalled", onInstalled);
     };
   }, []);
   const addToHomeScreen = async () => {
-    if (installPrompt) {
-      installPrompt.prompt();
-      try { await installPrompt.userChoice; } catch { /* ignore */ }
+    const p = installPrompt || window.__pwaPrompt;
+    if (p && p.prompt) {
+      try { p.prompt(); await p.userChoice; } catch { /* ignore */ }
+      window.__pwaPrompt = null;
       setInstallPrompt(null);
-    } else if (isIos) {
-      setShowIosInstall(true);
+    } else {
+      setShowInstallHelp((v) => !v);
     }
   };
 
@@ -1522,12 +1531,14 @@ export default function App() {
                           ? `${acct.remaining} valuation${acct.remaining === 1 ? "" : "s"} left`
                           : `${acct.remaining} free valuation${acct.remaining === 1 ? "" : "s"} left`}
               </div>
-              {!isStandalone && (installPrompt || isIos) && (
+              {!isStandalone && isMobile && (
                 <div className="acct-line">
                   <button className="link-btn" onClick={addToHomeScreen}>Add to Home Screen</button>
-                  {showIosInstall && (
+                  {showInstallHelp && (
                     <div className="count-note" style={{ marginTop: 6 }}>
-                      Tap the Share button, then "Add to Home Screen."
+                      {isIos
+                        ? "Tap the Share button, then \"Add to Home Screen.\""
+                        : "Tap the three-dots menu (top right), then \"Add to Home screen\" or \"Install app.\""}
                     </div>
                   )}
                 </div>

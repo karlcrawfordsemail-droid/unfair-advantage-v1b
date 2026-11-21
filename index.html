@@ -14,6 +14,18 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="PriceThisThing" />
+
+    <!-- Capture Chrome's install prompt as early as possible. It can fire
+         before React mounts, so stash it on window and let the app read it. -->
+    <script>
+      window.__pwaPrompt = null;
+      window.addEventListener("beforeinstallprompt", function (e) {
+        e.preventDefault();
+        window.__pwaPrompt = e;
+        window.dispatchEvent(new Event("pwapromptready"));
+      });
+      window.addEventListener("appinstalled", function () { window.__pwaPrompt = null; });
+    </script>
   </head>
   <body style="margin:0">
     <div id="root"></div>
