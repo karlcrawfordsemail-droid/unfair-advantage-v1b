@@ -61,8 +61,13 @@ export default async (req) => {
       const line = o.lines && o.lines.data && o.lines.data[0];
       const subId = o.subscription || (o.parent && o.parent.subscription_details && o.parent.subscription_details.subscription) || (acct && acct.subscriptionId);
       const linePrice = line && ((line.price && line.price.id) || (line.pricing && line.pricing.price_details && line.pricing.price_details.price));
-      // A new paid month resets the count. The same invoice never resets twice.
-      if (subId && (!acct || acct.lastInvoiceId !== o.id)) {
+      // Only the start of a new billing month resets the count. Stripe marks a
+      // renewal "subscription_cycle" and the first payment "subscription_create".
+      // A mid-month plan change (upgrade or downgrade) also pays an invoice, but
+      // Stripe marks it "subscription_update" — that must NOT reset the count, or
+      // the person would get a whole fresh allotment on top of what they've used.
+      const newPeriod = o.billing_reason === "subscription_cycle" || o.billing_reason === "subscription_create";
+      if (subId && newPeriod && (!acct || acct.lastInvoiceId !== o.id)) {
         await update(email, {
           customerId: o.customer, subscriptionId: subId, plan: planFromPrice(linePrice), status: "active",
           periodUsed: 0, lastInvoiceId: o.id,

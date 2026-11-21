@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 
 // App version — bump on every deploy so the running site shows which build is live.
-const APP_VERSION = "v1B.45";
+const APP_VERSION = "v1B.46";
 
 /* ============================================================================
    UNFAIR ADVANTAGE — v1B
@@ -621,6 +621,38 @@ export default function App() {
     try { return new URLSearchParams(window.location.search).get("debug") === "cost"; }
     catch { return false; }
   })();
+
+  // "Add to Home Screen": on Android/Chrome we capture the native install
+  // prompt and fire it from our own button; on iPhone there's no such event,
+  // so we show the Share -> Add to Home Screen steps instead. Hidden once the
+  // app is already installed (running in standalone display mode).
+  const isIos = typeof navigator !== "undefined" && /iphone|ipad|ipod/i.test(navigator.userAgent || "");
+  const [installPrompt, setInstallPrompt] = useState(null);
+  const [isStandalone, setIsStandalone] = useState(false);
+  const [showIosInstall, setShowIosInstall] = useState(false);
+  useEffect(() => {
+    try {
+      const standalone = (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) || window.navigator.standalone === true;
+      setIsStandalone(!!standalone);
+    } catch { /* ignore */ }
+    const onPrompt = (e) => { e.preventDefault(); setInstallPrompt(e); };
+    const onInstalled = () => { setInstallPrompt(null); setShowIosInstall(false); setIsStandalone(true); };
+    window.addEventListener("beforeinstallprompt", onPrompt);
+    window.addEventListener("appinstalled", onInstalled);
+    return () => {
+      window.removeEventListener("beforeinstallprompt", onPrompt);
+      window.removeEventListener("appinstalled", onInstalled);
+    };
+  }, []);
+  const addToHomeScreen = async () => {
+    if (installPrompt) {
+      installPrompt.prompt();
+      try { await installPrompt.userChoice; } catch { /* ignore */ }
+      setInstallPrompt(null);
+    } else if (isIos) {
+      setShowIosInstall(true);
+    }
+  };
 
   useEffect(() => () => clearInterval(msgTimer.current), []);
 
@@ -1490,6 +1522,16 @@ export default function App() {
                           ? `${acct.remaining} valuation${acct.remaining === 1 ? "" : "s"} left`
                           : `${acct.remaining} free valuation${acct.remaining === 1 ? "" : "s"} left`}
               </div>
+              {!isStandalone && (installPrompt || isIos) && (
+                <div className="acct-line">
+                  <button className="link-btn" onClick={addToHomeScreen}>Add to Home Screen</button>
+                  {showIosInstall && (
+                    <div className="count-note" style={{ marginTop: 6 }}>
+                      Tap the Share button, then "Add to Home Screen."
+                    </div>
+                  )}
+                </div>
+              )}
               <div className="acct-line">
                 <button className="link-btn" onClick={openFeedback}>Send feedback about the app</button>
               </div>
