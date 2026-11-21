@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 
 // App version — bump on every deploy so the running site shows which build is live.
-const APP_VERSION = "v1B.46.1";
+const APP_VERSION = "v1B.46.2";
 
 /* ============================================================================
    UNFAIR ADVANTAGE — v1B
@@ -132,6 +132,19 @@ body{
   background:var(--deep); color:#fff; padding:15px 18px 14px;
   font-family:var(--font-display); border-bottom:4px solid var(--accent);
   position:sticky; top:0; z-index:10;
+}
+.install-btn{
+  position:absolute; right:14px; top:50%; transform:translateY(-50%);
+  background:var(--accent); color:var(--deep); border:none;
+  border-radius:999px; font-family:var(--font-display); font-weight:800;
+  font-size:.82rem; letter-spacing:.01em; padding:8px 16px; cursor:pointer;
+  box-shadow:0 2px 7px rgba(0,0,0,.28); -webkit-tap-highlight-color:transparent;
+}
+.install-btn:active{ transform:translateY(-50%) scale(.96); }
+.install-hint{
+  background:var(--deep); color:#f7f3e8; font-family:var(--font-display);
+  font-size:.84rem; line-height:1.45; text-align:center; padding:2px 18px 13px;
+  position:sticky; top:0; z-index:9;
 }
 .brand{ display:flex; align-items:center; justify-content:center; gap:12px; }
 .brand-mark{
@@ -632,13 +645,12 @@ export default function App() {
   const isAndroid = /android/i.test(ua);
   const isMobile = isIos || isAndroid;
   const [installPrompt, setInstallPrompt] = useState(null);
-  const [isStandalone, setIsStandalone] = useState(false);
+  const [isStandalone, setIsStandalone] = useState(() => {
+    try { return (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) || window.navigator.standalone === true; }
+    catch { return false; }
+  });
   const [showInstallHelp, setShowInstallHelp] = useState(false);
   useEffect(() => {
-    try {
-      const standalone = (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) || window.navigator.standalone === true;
-      setIsStandalone(!!standalone);
-    } catch { /* ignore */ }
     if (window.__pwaPrompt) setInstallPrompt(window.__pwaPrompt);
     const onReady = () => setInstallPrompt(window.__pwaPrompt || null);
     const onPrompt = (e) => { e.preventDefault(); window.__pwaPrompt = e; setInstallPrompt(e); };
@@ -1305,17 +1317,30 @@ export default function App() {
 
   /* ====================================================================== */
 
+  const showInstall = !isStandalone && isMobile;
   const Header = (
-    <header className="appbar">
-      <div className="brand">
-        <div className="brand-mark">
-          <img src="/icon-192.png" width="44" height="44" alt="" style={{ display: "block", borderRadius: 11 }} />
+    <>
+      <header className="appbar">
+        <div className="brand">
+          <div className="brand-mark">
+            <img src="/icon-192.png" width="44" height="44" alt="" style={{ display: "block", borderRadius: 11 }} />
+          </div>
+          <div className="brand-text">
+            <div className="brand-name">PriceThisThing <span className="brand-version">{APP_VERSION}</span></div>
+          </div>
         </div>
-        <div className="brand-text">
-          <div className="brand-name">PriceThisThing <span className="brand-version">{APP_VERSION}</span></div>
+        {showInstall && (
+          <button className="install-btn" onClick={addToHomeScreen}>Install</button>
+        )}
+      </header>
+      {showInstall && showInstallHelp && (
+        <div className="install-hint">
+          {isIos
+            ? "Tap the Share button, then \"Add to Home Screen.\""
+            : "Tap the three-dots menu (top right), then \"Add to Home screen\" or \"Install app.\""}
         </div>
-      </div>
-    </header>
+      )}
+    </>
   );
 
   const HiddenInputs = (
@@ -1531,18 +1556,6 @@ export default function App() {
                           ? `${acct.remaining} valuation${acct.remaining === 1 ? "" : "s"} left`
                           : `${acct.remaining} free valuation${acct.remaining === 1 ? "" : "s"} left`}
               </div>
-              {!isStandalone && isMobile && (
-                <div className="acct-line">
-                  <button className="link-btn" onClick={addToHomeScreen}>Add to Home Screen</button>
-                  {showInstallHelp && (
-                    <div className="count-note" style={{ marginTop: 6 }}>
-                      {isIos
-                        ? "Tap the Share button, then \"Add to Home Screen.\""
-                        : "Tap the three-dots menu (top right), then \"Add to Home screen\" or \"Install app.\""}
-                    </div>
-                  )}
-                </div>
-              )}
               <div className="acct-line">
                 <button className="link-btn" onClick={openFeedback}>Send feedback about the app</button>
               </div>
