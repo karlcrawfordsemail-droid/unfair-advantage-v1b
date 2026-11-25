@@ -344,10 +344,13 @@ export default async (req) => {
       : "";
     const userTextFinal = `${klassLine}\n\n${userText}${clarLine}`;
 
-    // Default model is Sonnet 5.5 (v1B.43). Owner comparison test: ?model=s46
-    // in the app URL runs the valuation on Sonnet 4.6 instead. Rates are per
-    // million tokens.
-    const useS55 = modelTest !== "s46";
+    // Default model is Sonnet 4.6 (v1B.46.3). On resale pricing it tracks real
+    // sold comps; Sonnet 5.5 consistently priced high on the same items (e.g. a
+    // Howard Miller clock: 5.5 gave $800-1,400 twice, 4.6 gave $400-900, actual
+    // ~$599). These model IDs are pinned snapshots, so neither drifts. Owner
+    // comparison test: ?model=s55 in the app URL runs Sonnet 5.5 instead.
+    // Rates are per million tokens.
+    const useS55 = modelTest === "s55";
     const model = useS55 ? "claude-sonnet-5-5" : "claude-sonnet-4-6";
     const RATE_IN = useS55 ? 2.0 : 3.0;
     const RATE_OUT = useS55 ? 10.0 : 15.0;
