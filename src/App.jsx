@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 
 // App version — bump on every deploy so the running site shows which build is live.
-const APP_VERSION = "v1B.48";
+const APP_VERSION = "v1B.48.1";
 
 /* ============================================================================
    UNFAIR ADVANTAGE — v1B
@@ -20,7 +20,7 @@ const MAX_PHOTOS = 5;
 const PLANS = [
   { id: "basic", name: "Basic", price: "$9.99", per: "a month", detail: "25 valuations a month. Unused valuations don't carry over to the next month. Cancel anytime." },
   { id: "pro", name: "Pro", price: "$14.99", per: "a month", detail: "50 valuations a month. Unused valuations don't carry over to the next month. Cancel anytime." },
-  { id: "pack10", name: "10-Pack", price: "$4.99", per: "one time", detail: "10 valuations, good for 12 months. No subscription." },
+  { id: "pack10", name: "10 Valuations", price: "$4.99", per: "one time", detail: "10 valuations, good for 12 months. No subscription — a one-time top-up." },
 ];
 // Testing: require quick feedback before the next valuation unlocks.
 // Set to false at launch — the follow-up stays, feedback becomes optional/gone.
@@ -764,7 +764,7 @@ export default function App() {
         const before = (u && u.packLeft) || 0;
         const done = (v) => v && (isPack ? (v.packLeft || 0) > before : v.mode === "subscriber");
         if (!done(u) || !isPack) {
-          if (!done(u)) setNotice(isPack ? "Payment received. Adding your 10-Pack\u2026" : "Payment received. Turning on your subscription\u2026");
+          if (!done(u)) setNotice(isPack ? "Payment received. Adding your valuations\u2026" : "Payment received. Turning on your subscription\u2026");
           for (let i = 0; i < 20 && !done(u); i++) {
             await sleep(2000);
             if (done(await refreshAccount())) break;
@@ -772,7 +772,7 @@ export default function App() {
         }
         const v = await refreshAccount();
         if (!done(v)) setNotice("Payment received. If your valuations don't show yet, reload the page in a minute.");
-        else if (isPack) setNotice(`Your 10-Pack is ready. You have ${v.remaining} valuations.`);
+        else if (isPack) setNotice(`Your valuations are ready — you have ${v.remaining} now.`);
         else setNotice(`Your ${v.plan === "pro" ? "Pro" : "Basic"} subscription is on. You have ${v.remaining} valuations this month.`);
       }
     })();
@@ -1590,7 +1590,7 @@ export default function App() {
                   : acct.remaining == null
                     ? ""
                     : acct.mode === "subscriber"
-                      ? `${acct.monthLeft} of ${acct.limit} left this month` + (acct.packLeft ? ` + ${acct.packLeft} from your 10-Pack` : "")
+                      ? `${acct.monthLeft} of ${acct.limit} left this month` + (acct.packLeft ? ` + ${acct.packLeft} more` : "")
                       : family
                         ? `${acct.remaining} of ${acct.limit} remaining`
                         : acct.packLeft
@@ -1863,12 +1863,12 @@ export default function App() {
               <p>
                 Your plan: <strong>{acct.plan === "pro" ? "Pro" : "Basic"}</strong> &mdash;{" "}
                 {acct.plan === "pro" ? "$14.99" : "$9.99"}/month, {acct.limit} valuations a month.{" "}
-                You have {acct.monthLeft} of {acct.limit} left this month{acct.packLeft ? ` plus ${acct.packLeft} from a 10-Pack` : ""}.
+                You have {acct.monthLeft} of {acct.limit} left this month{acct.packLeft ? ` plus ${acct.packLeft} more` : ""}.
                 {acct.cancelAtPeriodEnd ? ` Your plan ends on ${fmtDate(acct.periodEnd)} — you keep your valuations until then.` : ""}
               </p>
             ) : (
               <p>{plansBrowse
-                ? "You're on the free plan. Pick a plan, or buy a 10-Pack — anytime."
+                ? "You're on the free plan. Pick a plan, or buy 10 valuations — anytime."
                 : "You've used your free valuations. Pick a plan to keep going."}</p>
             )}
             {planErr && <div className="error-box">{planErr}</div>}
@@ -1879,7 +1879,7 @@ export default function App() {
                 const busy = planBusy === pl.id;
                 let label, onClick;
                 if (isCurrent) { label = "Your current plan"; onClick = null; }
-                else if (pl.id === "pack10") { label = busy ? "Opening payment page…" : "Add a 10-Pack"; onClick = () => accountAction("checkout", "pack10"); }
+                else if (pl.id === "pack10") { label = busy ? "Opening payment page…" : "Buy 10 Valuations"; onClick = () => accountAction("checkout", "pack10"); }
                 else if (isSub) { label = busy ? "Switching…" : `Switch to ${pl.name}`; onClick = () => accountAction("switch", pl.id); }
                 else { label = busy ? "Opening payment page…" : `Subscribe to ${pl.name}`; onClick = () => accountAction("checkout", pl.id); }
                 return (
