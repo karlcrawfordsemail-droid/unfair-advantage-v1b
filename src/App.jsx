@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 
 // App version — bump on every deploy so the running site shows which build is live.
-const APP_VERSION = "v1B.48.1";
+const APP_VERSION = "v1B.48.2";
 
 /* ============================================================================
    UNFAIR ADVANTAGE — v1B
@@ -629,7 +629,7 @@ export default function App() {
   const family = !!(acct && acct.family);
   const capped = !!(acct && !acct.unlimited && acct.remaining === 0);
   const ticketRef = useRef(null);
-  const [signin, setSignin] = useState({ step: "email", email: "", code: "", busy: false, err: "", reason: "free" });
+  const [signin, setSignin] = useState({ step: "email", email: "", code: "", busy: false, err: "", reason: "free", plan: "" });
   const [planBusy, setPlanBusy] = useState(false);
   const [planErr, setPlanErr] = useState("");
   const [notice, setNotice] = useState("");
@@ -835,13 +835,16 @@ export default function App() {
 
   const checkCode = async () => {
     if (signin.code.replace(/\D/g, "").length !== 6 || signin.busy) return;
+    // If they came here to buy, resume that purchase once signed in.
+    const resumePlan = signin.reason === "buy" ? signin.plan : "";
     setSignin((s) => ({ ...s, busy: true, err: "" }));
     try {
       const { ok, data } = await postJSON("/.netlify/functions/auth-verify", { email: signin.email.trim(), code: signin.code });
       if (!ok || !data.token) { setSignin((s) => ({ ...s, busy: false, err: data.error || "That code didn't work." })); return; }
       setToken(data.token);
       const u = await refreshAccount();
-      setSignin((s) => ({ ...s, busy: false, step: "email", code: "" }));
+      setSignin((s) => ({ ...s, busy: false, step: "email", code: "", reason: "free", plan: "" }));
+      if (resumePlan) { await accountAction("checkout", resumePlan); return; }
       if (u && u.allowed === false && u.needs && u.needs !== "signin") routeNeeds(u.needs);
       else {
         if (u && u.mode === "subscriber") setNotice(`Signed in. You have ${u.remaining} valuations left this month.`);
@@ -862,7 +865,14 @@ export default function App() {
     setPlanBusy(plan || action); setPlanErr("");
     try {
       const { ok, data } = await postJSON("/.netlify/functions/account", { token: getToken(), action, plan });
-      if (data && data.signedOut) { setToken(""); await refreshAccount(); setPlanBusy(false); routeNeeds("signin"); return; }
+      if (data && data.signedOut) {
+        setToken(""); await refreshAccount(); setPlanBusy(false);
+        // A not-signed-in person who tapped a plan: send them to email entry
+        // framed as checkout, and remember the plan so we resume it after.
+        if (action === "checkout") { setSignin((s) => ({ ...s, step: "email", code: "", err: "", reason: "buy", plan })); setPhase("signin"); }
+        else routeNeeds("signin");
+        return;
+      }
       if (!ok) { setPlanErr(data.error || "Something went wrong. Try again."); setPlanBusy(false); return; }
       if (action === "signout") {
         setToken(""); await refreshAccount(); setPlanBusy(false); setNotice("Signed out."); setPhase("capture"); return;
@@ -1777,6 +1787,11 @@ export default function App() {
                     <h3>Get 2 more free valuations</h3>
                     <p>Enter your email and we'll send you a 6-digit code. No password needed. Already subscribed? Use that email to sign in.</p>
                   </>
+                ) : signin.reason === "buy" ? (
+                  <>
+                    <h3>Enter your email to continue</h3>
+                    <p>We'll send a 6-digit code to confirm it's you, then you'll go straight to payment. No password needed. Already have an account? Use that email.</p>
+                  </>
                 ) : (
                   <>
                     <h3>Sign in</h3>
@@ -1795,7 +1810,9 @@ export default function App() {
                 </button>
                 {signin.reason !== "free" && (
                   <div className="acct-links">
-                    <button className="link-btn" onClick={() => setPhase("capture")}>Cancel</button>
+                    <button className="link-btn" onClick={() => setPhase(signin.reason === "buy" ? "subscribe" : "capture")}>
+                      {signin.reason === "buy" ? "Back to plans" : "Cancel"}
+                    </button>
                   </div>
                 )}
               </>
