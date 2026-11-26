@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 
 // App version — bump on every deploy so the running site shows which build is live.
-const APP_VERSION = "v1B.46.4";
+const APP_VERSION = "v1B.47";
 
 /* ============================================================================
    UNFAIR ADVANTAGE — v1B
@@ -503,6 +503,14 @@ textarea.fb-note{
 .limit-box h3{ font-family:var(--font-display); color:#7a4d0c; margin:0 0 6px; }
 .limit-box p{ font-size:.9rem; color:#5c4415; margin:0; font-weight:700; }
 .count-note{ text-align:center; font-size:1rem; font-weight:700; color:var(--deep); margin-top:14px; }
+.plans-btn{
+  display:block; width:100%; margin:16px 0 2px; background:var(--surface);
+  color:var(--deep); border:2px solid var(--accent); border-radius:999px;
+  font-family:var(--font-display); font-weight:800; font-size:1.02rem;
+  letter-spacing:.01em; padding:13px 18px; text-align:center; cursor:pointer;
+  box-shadow:0 1px 5px rgba(0,0,0,.08); -webkit-tap-highlight-color:transparent;
+}
+.plans-btn:active{ transform:scale(.98); }
 .acct-line{ text-align:center; font-size:.78rem; color:var(--muted); margin-top:6px; line-height:1.6; }
 .link-btn{
   background:none; border:none; padding:2px 4px; color:var(--deep); text-decoration:underline;
@@ -618,6 +626,9 @@ export default function App() {
   const prevPhaseRef = useRef("capture");
   const [needsFeedback, setNeedsFeedback] = useState(false);
   const [fb, setFb] = useState({ reliable: null, rot: null, note: "" });
+  // True when the plans screen was opened voluntarily (browsing), not because
+  // the person ran out. Controls the headings on the subscribe screen.
+  const [plansBrowse, setPlansBrowse] = useState(false);
 
   const captureIndexRef = useRef(0);
   const cameraInputRef = useRef(null);
@@ -783,8 +794,15 @@ export default function App() {
   // Sends the person to the right screen when they're out of valuations.
   const routeNeeds = (needs) => {
     if (needs === "signin") { setSignin((s) => ({ ...s, step: "email", code: "", err: "", reason: "free" })); setPhase("signin"); }
-    else if (needs === "subscribe" || needs === "month_done") { setPlanErr(""); setPhase("subscribe"); }
+    else if (needs === "subscribe" || needs === "month_done") { setPlanErr(""); setPlansBrowse(false); setPhase("subscribe"); }
     else setPhase("limit");
+  };
+
+  // Opens the plans screen on purpose (from the "Plans & Pricing" button),
+  // whatever the person's current balance. Anyone can view prices; buying
+  // routes a not-signed-in person to sign in (handled by the checkout action).
+  const openPlans = () => {
+    setPlanErr(""); setPlansBrowse(true); setPhase("subscribe");
   };
 
   const sendCode = async () => {
@@ -1556,6 +1574,9 @@ export default function App() {
                           ? `${acct.remaining} valuation${acct.remaining === 1 ? "" : "s"} left`
                           : `${acct.remaining} free valuation${acct.remaining === 1 ? "" : "s"} left`}
               </div>
+              {!unlimited && !family && (
+                <button className="plans-btn" onClick={openPlans}>Plans &amp; Pricing</button>
+              )}
               <div className="acct-line">
                 <button className="link-btn" onClick={openFeedback}>Send feedback about the app</button>
               </div>
@@ -1816,12 +1837,18 @@ export default function App() {
           <div className="acct-box">
             {acct && acct.mode === "subscriber" ? (
               <>
-                <h3>You've used this month's {acct.limit} valuations</h3>
+                <h3>{plansBrowse ? "Plans & Pricing" : `You've used this month's ${acct.limit} valuations`}</h3>
                 <p>
-                  {acct.periodEnd
-                    ? `Your count resets on ${fmtDate(acct.periodEnd)}, when your subscription renews.`
-                    : "Your count resets when your subscription renews."}
-                  {" "}To keep going before then, add a 10-Pack.
+                  {plansBrowse
+                    ? `You're on ${acct.plan === "pro" ? "Pro" : "Basic"} — ${acct.monthLeft} of ${acct.limit} left this month${acct.packLeft ? `, plus ${acct.packLeft} from a 10-Pack` : ""}. Add a 10-Pack anytime, or manage your subscription below.`
+                    : (
+                      <>
+                        {acct.periodEnd
+                          ? `Your count resets on ${fmtDate(acct.periodEnd)}, when your subscription renews.`
+                          : "Your count resets when your subscription renews."}
+                        {" "}To keep going before then, add a 10-Pack.
+                      </>
+                    )}
                 </p>
                 {planErr && <div className="error-box">{planErr}</div>}
                 <button className="primary-button" disabled={!!planBusy} onClick={() => accountAction("checkout", "pack10")}>
@@ -1833,8 +1860,8 @@ export default function App() {
               </>
             ) : (
               <>
-                <h3>You've used your free valuations</h3>
-                <p>Choose how you'd like to keep pricing items.</p>
+                <h3>{plansBrowse ? "Plans & Pricing" : "You've used your free valuations"}</h3>
+                <p>{plansBrowse ? "Subscribe for monthly valuations, or grab a 10-Pack — buy anytime." : "Choose how you'd like to keep pricing items."}</p>
                 {planErr && <div className="error-box">{planErr}</div>}
                 <div className="plan-list">
                   {PLANS.map((pl) => (
@@ -1852,7 +1879,7 @@ export default function App() {
                 </div>
                 <p style={{ marginTop: 12, marginBottom: 0, fontSize: ".82rem", color: "var(--muted)" }}>
                   Prices in US dollars. Payment is handled by Stripe. By purchasing, you agree to the{" "}
-                  <a href="/terms.html">Terms</a> and <a href="/refunds.html">Refund policy</a>. Signed in as {acct && acct.email}.
+                  <a href="/terms.html">Terms</a> and <a href="/refunds.html">Refund policy</a>.{acct && acct.email ? ` Signed in as ${acct.email}.` : ""}
                 </p>
               </>
             )}
