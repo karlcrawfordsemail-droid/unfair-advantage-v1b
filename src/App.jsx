@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 
 // App version — bump on every deploy so the running site shows which build is live.
-const APP_VERSION = "v1B.47";
+const APP_VERSION = "v1B.48";
 
 /* ============================================================================
    UNFAIR ADVANTAGE — v1B
@@ -544,6 +544,19 @@ textarea.fb-note{
 .plan-price{ font-family:var(--font-display); font-weight:900; font-size:1.5rem; color:var(--deep); line-height:1; }
 .plan-price small{ font-size:1rem; font-weight:700; color:var(--muted); }
 .plan-detail{ margin:8px 0 16px !important; }
+.plan-card.plan-current{ border-color:var(--accent); border-width:2px; background:#fffdf6; }
+.plan-badge{
+  display:inline-block; margin-left:8px; vertical-align:middle;
+  background:var(--accent); color:var(--deep); font-family:var(--font-display);
+  font-weight:800; font-size:.68rem; letter-spacing:.03em; text-transform:uppercase;
+  padding:3px 8px; border-radius:999px;
+}
+.plan-current-btn{
+  width:100%; margin:0; padding:12px; border-radius:var(--radius-md);
+  border:1.5px dashed var(--accent); background:transparent; color:var(--deep);
+  font-family:var(--font-body); font-size:.95rem; font-weight:700; cursor:default;
+}
+.cancel-row{ text-align:center; margin-top:14px; font-size:.86rem; color:var(--muted); }
 .notice{ background:var(--blue-soft); border:1.5px solid #b9d6e4; color:var(--blue); border-radius:var(--radius-md);
   padding:12px 14px; font-size:.9rem; font-weight:700; margin-bottom:14px; }
 `;
@@ -629,6 +642,8 @@ export default function App() {
   // True when the plans screen was opened voluntarily (browsing), not because
   // the person ran out. Controls the headings on the subscribe screen.
   const [plansBrowse, setPlansBrowse] = useState(false);
+  // Two-step confirm before cancelling a subscription.
+  const [confirmCancel, setConfirmCancel] = useState(false);
 
   const captureIndexRef = useRef(0);
   const cameraInputRef = useRef(null);
@@ -802,7 +817,7 @@ export default function App() {
   // whatever the person's current balance. Anyone can view prices; buying
   // routes a not-signed-in person to sign in (handled by the checkout action).
   const openPlans = () => {
-    setPlanErr(""); setPlansBrowse(true); setPhase("subscribe");
+    setPlanErr(""); setConfirmCancel(false); setPlansBrowse(true); setPhase("subscribe");
   };
 
   const sendCode = async () => {
@@ -853,6 +868,14 @@ export default function App() {
         setToken(""); await refreshAccount(); setPlanBusy(false); setNotice("Signed out."); setPhase("capture"); return;
       }
       if (data.url) { window.location.href = data.url; return; }
+      // In-app subscription changes: refresh the account and confirm.
+      if (action === "switch" || action === "cancel" || action === "resume") {
+        setConfirmCancel(false);
+        await refreshAccount();
+        if (action === "switch") setNotice(data.plan === "pro" ? "You're on Pro now — 50 valuations a month." : "You're on Basic now — 25 valuations a month.");
+        else if (action === "cancel") setNotice("Your subscription will end at the close of this billing period. You keep your valuations until then.");
+        else setNotice("Your subscription is back on.");
+      }
       setPlanBusy(false);
     } catch {
       setPlanErr("Couldn't reach the server. Check your connection.");
@@ -1593,7 +1616,7 @@ export default function App() {
                       Signed in as {acct.email}
                       <br />
                       {(acct.mode === "subscriber" || acct.hasCustomer) && (
-                        <button className="link-btn" disabled={!!planBusy} onClick={() => accountAction("manage")}>Manage subscription</button>
+                        <button className="link-btn" disabled={!!planBusy} onClick={openPlans}>Manage subscription</button>
                       )}
                       <button className="link-btn" disabled={!!planBusy} onClick={() => accountAction("signout")}>Sign out</button>
                     </>
@@ -1835,54 +1858,74 @@ export default function App() {
       {phase === "subscribe" && (
         <div className="screen">
           <div className="acct-box">
+            <h3>Plans &amp; Pricing</h3>
             {acct && acct.mode === "subscriber" ? (
-              <>
-                <h3>{plansBrowse ? "Plans & Pricing" : `You've used this month's ${acct.limit} valuations`}</h3>
-                <p>
-                  {plansBrowse
-                    ? `You're on ${acct.plan === "pro" ? "Pro" : "Basic"} — ${acct.monthLeft} of ${acct.limit} left this month${acct.packLeft ? `, plus ${acct.packLeft} from a 10-Pack` : ""}. Add a 10-Pack anytime, or manage your subscription below.`
-                    : (
-                      <>
-                        {acct.periodEnd
-                          ? `Your count resets on ${fmtDate(acct.periodEnd)}, when your subscription renews.`
-                          : "Your count resets when your subscription renews."}
-                        {" "}To keep going before then, add a 10-Pack.
-                      </>
-                    )}
-                </p>
-                {planErr && <div className="error-box">{planErr}</div>}
-                <button className="primary-button" disabled={!!planBusy} onClick={() => accountAction("checkout", "pack10")}>
-                  {planBusy === "pack10" ? "Opening payment page\u2026" : "Add a 10-Pack \u2014 $4.99"}
-                </button>
-                <button className="link-btn" style={{ marginTop: 12 }} disabled={!!planBusy} onClick={() => accountAction("manage")}>
-                  Manage subscription
-                </button>
-              </>
+              <p>
+                Your plan: <strong>{acct.plan === "pro" ? "Pro" : "Basic"}</strong> &mdash;{" "}
+                {acct.plan === "pro" ? "$14.99" : "$9.99"}/month, {acct.limit} valuations a month.{" "}
+                You have {acct.monthLeft} of {acct.limit} left this month{acct.packLeft ? ` plus ${acct.packLeft} from a 10-Pack` : ""}.
+                {acct.cancelAtPeriodEnd ? ` Your plan ends on ${fmtDate(acct.periodEnd)} — you keep your valuations until then.` : ""}
+              </p>
             ) : (
-              <>
-                <h3>{plansBrowse ? "Plans & Pricing" : "You've used your free valuations"}</h3>
-                <p>{plansBrowse ? "Subscribe for monthly valuations, or grab a 10-Pack — buy anytime." : "Choose how you'd like to keep pricing items."}</p>
-                {planErr && <div className="error-box">{planErr}</div>}
-                <div className="plan-list">
-                  {PLANS.map((pl) => (
-                    <div className="plan-card" key={pl.id}>
-                      <div className="plan-head">
-                        <span className="plan-name">{pl.name}</span>
-                        <span className="plan-price">{pl.price} <small>{pl.per}</small></span>
-                      </div>
-                      <p className="plan-detail">{pl.detail}</p>
-                      <button className="primary-button" disabled={!!planBusy} onClick={() => accountAction("checkout", pl.id)}>
-                        {planBusy === pl.id ? "Opening payment page\u2026" : pl.id === "pack10" ? "Buy 10-Pack" : `Subscribe to ${pl.name}`}
-                      </button>
-                    </div>
-                  ))}
-                </div>
-                <p style={{ marginTop: 12, marginBottom: 0, fontSize: ".82rem", color: "var(--muted)" }}>
-                  Prices in US dollars. Payment is handled by Stripe. By purchasing, you agree to the{" "}
-                  <a href="/terms.html">Terms</a> and <a href="/refunds.html">Refund policy</a>.{acct && acct.email ? ` Signed in as ${acct.email}.` : ""}
-                </p>
-              </>
+              <p>{plansBrowse
+                ? "You're on the free plan. Pick a plan, or buy a 10-Pack — anytime."
+                : "You've used your free valuations. Pick a plan to keep going."}</p>
             )}
+            {planErr && <div className="error-box">{planErr}</div>}
+            <div className="plan-list">
+              {PLANS.map((pl) => {
+                const isSub = !!(acct && acct.mode === "subscriber");
+                const isCurrent = isSub && pl.id === (acct.plan === "pro" ? "pro" : "basic");
+                const busy = planBusy === pl.id;
+                let label, onClick;
+                if (isCurrent) { label = "Your current plan"; onClick = null; }
+                else if (pl.id === "pack10") { label = busy ? "Opening payment page…" : "Add a 10-Pack"; onClick = () => accountAction("checkout", "pack10"); }
+                else if (isSub) { label = busy ? "Switching…" : `Switch to ${pl.name}`; onClick = () => accountAction("switch", pl.id); }
+                else { label = busy ? "Opening payment page…" : `Subscribe to ${pl.name}`; onClick = () => accountAction("checkout", pl.id); }
+                return (
+                  <div className={"plan-card" + (isCurrent ? " plan-current" : "")} key={pl.id}>
+                    <div className="plan-head">
+                      <span className="plan-name">{pl.name}{isCurrent && <span className="plan-badge">Current plan</span>}</span>
+                      <span className="plan-price">{pl.price} <small>{pl.per}</small></span>
+                    </div>
+                    <p className="plan-detail">{pl.detail}</p>
+                    <button
+                      className={isCurrent ? "plan-current-btn" : "primary-button"}
+                      disabled={isCurrent || !!planBusy}
+                      onClick={onClick || undefined}
+                    >
+                      {label}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+
+            {acct && acct.mode === "subscriber" && (
+              <div className="cancel-row">
+                {acct.cancelAtPeriodEnd ? (
+                  <button className="link-btn" disabled={!!planBusy} onClick={() => accountAction("resume")}>
+                    {planBusy === "resume" ? "Resuming…" : "Resume subscription"}
+                  </button>
+                ) : confirmCancel ? (
+                  <span>
+                    Cancel your subscription?{" "}
+                    <button className="link-btn" disabled={!!planBusy} onClick={() => accountAction("cancel")}>
+                      {planBusy === "cancel" ? "Canceling…" : "Yes, cancel"}
+                    </button>
+                    {" "}&middot;{" "}
+                    <button className="link-btn" disabled={!!planBusy} onClick={() => setConfirmCancel(false)}>Keep it</button>
+                  </span>
+                ) : (
+                  <button className="link-btn" disabled={!!planBusy} onClick={() => setConfirmCancel(true)}>Cancel subscription</button>
+                )}
+              </div>
+            )}
+
+            <p style={{ marginTop: 14, marginBottom: 0, fontSize: ".82rem", color: "var(--muted)" }}>
+              Prices in US dollars. Payment is handled by Stripe. By purchasing, you agree to the{" "}
+              <a href="/terms.html">Terms</a> and <a href="/refunds.html">Refund policy</a>.{acct && acct.email ? ` Signed in as ${acct.email}.` : ""}
+            </p>
             <div className="acct-links">
               <button className="link-btn" onClick={() => setPhase("capture")}>Back</button>
               <button className="link-btn" disabled={!!planBusy} onClick={() => accountAction("signout")}>Sign out</button>
