@@ -362,6 +362,12 @@ export default async (req) => {
     const requestBody = {
       model,
       max_tokens: maxTokens,
+      // Pricing is a consistency task, not a creative one. Default temp (1.0)
+      // samples a different "defensible" number each run, which showed up as the
+      // same clock swinging $400-750 vs $650-1050 across identical runs. Low temp
+      // makes the model return its single best estimate, so run-to-run variance
+      // drops to just the live-comp differences. Still outputs a low/high range.
+      temperature: 0.2,
       system,
       messages: [
         { role: "user", content: [...imageBlocks, { type: "text", text: userTextFinal }] },

@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content" />
+    <title>PriceThisThing — Know What It's Worth</title>
+    <meta name="description" content="Price range estimates from real sales data. Buy low, sell high." />
+
+    <!-- PWA / Add to Home Screen -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="theme-color" content="#173d34" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="icon" type="image/png" href="/icon-192.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="PriceThisThing" />
+
+    <!-- Capture Chrome's install prompt as early as possible. It can fire
+         before React mounts, so stash it on window and let the app read it. -->
+    <script>
+      window.__pwaPrompt = null;
+      window.addEventListener("beforeinstallprompt", function (e) {
+        e.preventDefault();
+        window.__pwaPrompt = e;
+        window.dispatchEvent(new Event("pwapromptready"));
+      });
+      window.addEventListener("appinstalled", function () { window.__pwaPrompt = null; });
+    </script>
+    <script type="module" crossorigin src="/assets/index-CmCLzUnd.js"></script>
+  </head>
+  <body style="margin:0">
+    <div id="root"></div>
+  </body>
+</html>
